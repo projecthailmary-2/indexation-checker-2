@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: semify-indexation-checker
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: SERPAPI_KEY
+        sync: false
+      - key: NODE_ENV
+        value: production
