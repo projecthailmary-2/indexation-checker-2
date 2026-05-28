@@ -363,13 +363,21 @@ export default function Home() {
               <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>Automation Dashboard</div>
             </div>
           </div>
-          {isDone && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button style={S.btnOutline} onClick={handleDownloadTracker}>↓ Tracker CSV</button>
-              <button style={S.btnOutline} onClick={handleDownloadPostLinks}>↓ Post Links CSV</button>
-              <button style={{ ...S.btnOutline, borderColor: '#dc2626', color: '#dc2626' }} onClick={handleDownloadSalvage}>↓ Salvage Sequoias</button>
-            </div>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {isDone && (
+              <>
+                <button style={S.btnOutline} onClick={handleDownloadTracker}>↓ Tracker CSV</button>
+                <button style={S.btnOutline} onClick={handleDownloadPostLinks}>↓ Post Links CSV</button>
+                <button style={{ ...S.btnOutline, borderColor: '#dc2626', color: '#dc2626' }} onClick={handleDownloadSalvage}>↓ Salvage Sequoias</button>
+              </>
+            )}
+            <button
+              onClick={async () => { await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ logout: true }) }); window.location.href = '/login'; }}
+              style={{ ...S.btnGhost, fontSize: 11 }}
+            >
+              Log out
+            </button>
+          </div>
         </header>
 
         {/* BODY */}
