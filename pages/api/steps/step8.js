@@ -39,7 +39,7 @@ export default async function handler(req, res) {
     }
     const indexStatus = await checkIndexed(item.link);
     results.push({ ...item, indexStatus });
-    await sleep(1500);
+    await sleep(1000 + Math.floor(Math.random() * 1000));
   }
 
   const nextBatchStart = batchStart + batchSize;
