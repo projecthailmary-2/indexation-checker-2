@@ -107,11 +107,16 @@ export default function Home() {
   const [currentStep, setCurrentStep] = useState(0);
   const [stepStatuses, setStepStatuses] = useState({});
   const [logs, setLogs] = useState([]);
-  const [activeTab, setActiveTab] = useState('tracker');
+  const [activeTab, setActiveTab] = useState('usage');
   const [trackerResults, setTrackerResults] = useState([]);
   const [postLinks, setPostLinks] = useState([]);
   const [runError, setRunError] = useState(null);
+  const [usageData, setUsageData] = useState(null);
   const logRef = useRef(null);
+
+  useEffect(() => {
+    fetch('/api/usage').then(r => r.json()).then(setUsageData).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -213,6 +218,8 @@ export default function Home() {
     let tracker = parsedDomains.map(d => ({ domain: d }));
     let links = [];
     let serpApiErrorSet = false;
+    let step2Credits = 0;
+    let step8Credits = 0;
 
     try {
       // Steps 1–3
@@ -233,6 +240,7 @@ export default function Home() {
           serpApiErrorSet = true;
           throw new Error('No SerpAPI credits');
         }
+        step2Credits = r13.results.length;
         tracker = tracker.map((row, i) => ({ ...row, ...r13.results[i] }));
         setTrackerResults([...tracker]);
         addLog(`Steps 1–3 complete — ${r13.results.length} domains processed.`, 'success');
@@ -301,6 +309,7 @@ export default function Home() {
       }
 
       links = allLinks;
+      step8Credits = links.filter(l => l.indexStatus && l.indexStatus !== 'Skip').length;
       addLog(`Step 8 complete — Indexed: ${links.filter(l=>l.indexStatus==='Indexed').length} | Unindexed: ${links.filter(l=>l.indexStatus==='Unindexed').length}`, 'success');
       setStepStatus(8, 'done');
 
@@ -325,6 +334,13 @@ export default function Home() {
       addLog(`Error: ${err.message}`, 'error');
       if (!serpApiErrorSet) setRunError({ message: err.message });
     } finally {
+      if (step2Credits + step8Credits > 0) {
+        fetch('/api/usage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step2Credits, step8Credits }),
+        }).then(r => r.json()).then(setUsageData).catch(() => {});
+      }
       setRunning(false);
     }
   }
@@ -380,6 +396,28 @@ export default function Home() {
                   <div style={{ fontSize: 11, color: '#b45309', marginTop: 6, background: '#fef9c3', padding: '6px 8px', borderRadius: 4, border: '1px solid #fde68a' }}>
                     Invalid: {invalidDomains.join(', ')}
                   </div>
+                )}
+              </div>
+            </div>
+
+            <div style={S.card}>
+              <div style={S.cardHeader}>
+                <span style={S.cardHeaderLabel}>Credits This Month</span>
+                {usageData && <span style={S.badge}>{usageData.current?.total ?? 0}</span>}
+              </div>
+              <div style={{ padding: '10px 14px' }}>
+                {!usageData ? (
+                  <div style={{ fontSize: 12, color: '#aaa' }}>Loading…</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 26, fontWeight: 700, color: TEXT, lineHeight: 1 }}>{usageData.current?.total ?? 0}</div>
+                    <div style={{ fontSize: 11, color: MUTED, marginTop: 3 }}>credits used in {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</div>
+                    {usageData.current?.runs?.length > 0 && (
+                      <div style={{ marginTop: 8, fontSize: 11, color: MUTED }}>
+                        Last run: {new Date(usageData.current.runs[0].ts).toLocaleDateString()} — {usageData.current.runs[0].total} credits
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -485,13 +523,14 @@ export default function Home() {
               </div>
             </div>
 
-            {(trackerResults.length > 0 || postLinks.length > 0) && (
+            {(trackerResults.length > 0 || postLinks.length > 0 || usageData) && (
               <div style={S.card}>
                 <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, background: BG_HEADER, padding: '0 14px' }}>
                   {[
                     { id: 'tracker', label: 'Tracker', count: trackerResults.length },
                     { id: 'postlinks', label: 'Post Links', count: postLinks.length },
                     { id: 'salvage', label: 'Salvage Sequoias', count: postLinks.filter(l => l.taskType === 'Sequoia' && l.indexStatus === 'Unindexed').length },
+                    { id: 'usage', label: 'Usage', count: usageData?.current?.runs?.length ?? 0 },
                   ].map(tab => (
                     <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
                       background: 'none', border: 'none', cursor: 'pointer',
@@ -607,6 +646,73 @@ export default function Home() {
                       </table>
                     );
                   })()}
+
+                  {/* USAGE TAB */}
+                  {activeTab === 'usage' && (
+                    <div style={{ padding: '16px 14px' }}>
+                      {!usageData ? (
+                        <div style={{ color: MUTED, fontSize: 13 }}>Loading…</div>
+                      ) : (
+                        <>
+                          <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: TEXT, marginBottom: 8 }}>
+                              {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })} — {usageData.current?.total ?? 0} credits used
+                            </div>
+                            {usageData.current?.runs?.length > 0 ? (
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                                <thead>
+                                  <tr>
+                                    {['Date', 'Time', 'Step 2 (domains)', 'Step 8 (posts)', 'Total'].map(h => (
+                                      <th key={h} style={S.th}>{h}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {usageData.current.runs.map((run, i) => {
+                                    const d = new Date(run.ts);
+                                    return (
+                                      <tr key={i}>
+                                        <td style={S.td}>{d.toLocaleDateString()}</td>
+                                        <td style={S.td}>{d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                                        <td style={{ ...S.td, textAlign: 'right' }}>{run.step2}</td>
+                                        <td style={{ ...S.td, textAlign: 'right' }}>{run.step8}</td>
+                                        <td style={{ ...S.td, textAlign: 'right', fontWeight: 600 }}>{run.total}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <div style={{ color: MUTED, fontSize: 13 }}>No runs this month yet.</div>
+                            )}
+                          </div>
+
+                          {usageData.history?.length > 0 && (
+                            <>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: TEXT, marginBottom: 8, borderTop: `1px solid ${BORDER}`, paddingTop: 14 }}>Monthly History</div>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                                <thead>
+                                  <tr>
+                                    {['Month', 'Total Credits'].map(h => (
+                                      <th key={h} style={S.th}>{h}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {usageData.history.map((row, i) => (
+                                    <tr key={i}>
+                                      <td style={S.td}>{row.month}</td>
+                                      <td style={{ ...S.td, textAlign: 'right', fontWeight: 600 }}>{row.total}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
 
                 </div>
               </div>
