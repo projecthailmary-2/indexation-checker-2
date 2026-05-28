@@ -9,7 +9,7 @@ export function middleware(request) {
   }
 
   const auth = request.cookies.get('auth')?.value;
-  if (!auth || auth !== process.env.AUTH_SECRET) {
+  if (!auth || auth !== process.env.APP_PASSWORD) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 

@@ -19,6 +19,6 @@ export default function handler(req, res) {
 
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
   const maxAge = 60 * 60 * 24 * 30; // 30 days
-  res.setHeader('Set-Cookie', `auth=${process.env.AUTH_SECRET}; HttpOnly${secure}; SameSite=Strict; Max-Age=${maxAge}; Path=/`);
+  res.setHeader('Set-Cookie', `auth=${process.env.APP_PASSWORD}; HttpOnly${secure}; SameSite=Strict; Max-Age=${maxAge}; Path=/`);
   return res.status(200).json({ ok: true });
 }
