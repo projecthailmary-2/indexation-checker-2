@@ -503,34 +503,13 @@ export default function Home() {
             )}
 
             <div style={S.card}>
-              <div style={S.cardHeader}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: running ? '#f59e0b' : isDone ? ACCENT : BORDER }} />
-                  <span style={S.cardHeaderLabel}>Activity Log</span>
-                </div>
-                {logs.length > 0 && <button style={S.btnGhost} onClick={() => setLogs([])}>Clear</button>}
-              </div>
-              <div style={{ padding: 12 }}>
-                <div style={S.logWrap} ref={logRef}>
-                  {logs.length === 0 && <div style={{ color: '#555' }}>Waiting to start…</div>}
-                  {logs.map((log, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 14 }}>
-                      <span style={{ color: '#555', flexShrink: 0, fontSize: 11 }}>{log.time}</span>
-                      <span style={{ color: logColor(log.type) }}>{log.msg}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {(trackerResults.length > 0 || postLinks.length > 0 || usageData) && (
-              <div style={S.card}>
                 <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, background: BG_HEADER, padding: '0 14px' }}>
                   {[
                     { id: 'tracker', label: 'Tracker', count: trackerResults.length },
                     { id: 'postlinks', label: 'Post Links', count: postLinks.length },
                     { id: 'salvage', label: 'Salvage Sequoias', count: postLinks.filter(l => l.taskType === 'Sequoia' && l.indexStatus === 'Unindexed').length },
                     { id: 'usage', label: 'Usage', count: usageData?.current?.runs?.length ?? 0 },
+                    { id: 'log', label: 'Log', count: logs.filter(l => l.type === 'error').length || null },
                   ].map(tab => (
                     <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
                       background: 'none', border: 'none', cursor: 'pointer',
@@ -714,19 +693,26 @@ export default function Home() {
                     </div>
                   )}
 
-                </div>
-              </div>
-            )}
+                  {/* LOG TAB */}
+                  {activeTab === 'log' && (
+                    <div style={{ padding: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                        {logs.length > 0 && <button style={S.btnGhost} onClick={() => setLogs([])}>Clear</button>}
+                      </div>
+                      <div style={{ ...S.logWrap, height: 340 }} ref={logRef}>
+                        {logs.length === 0 && <div style={{ color: '#555' }}>Waiting to start…</div>}
+                        {logs.map((log, i) => (
+                          <div key={i} style={{ display: 'flex', gap: 14 }}>
+                            <span style={{ color: '#555', flexShrink: 0, fontSize: 11 }}>{log.time}</span>
+                            <span style={{ color: logColor(log.type) }}>{log.msg}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-            {trackerResults.length === 0 && !running && (
-              <div style={S.card}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 24px', gap: 8, textAlign: 'center' }}>
-                  <div style={{ fontSize: 32, marginBottom: 4 }}>📋</div>
-                  <div style={{ fontWeight: 600, fontSize: 15, color: '#444' }}>No results yet</div>
-                  <div style={{ fontSize: 13, color: MUTED }}>Enter your domains on the left and click Run Full Automation.</div>
                 </div>
-              </div>
-            )}
+            </div>
 
           </main>
         </div>
