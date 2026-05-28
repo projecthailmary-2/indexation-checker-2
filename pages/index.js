@@ -52,6 +52,18 @@ const S = {
   td: { padding: '9px 12px', borderBottom: `1px solid #f0f0ee`, verticalAlign: 'middle', color: TEXT, fontSize: 13 },
 };
 
+async function apiFetch(path, body) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Server error at ${path}: ${res.status} ${res.statusText}`);
+  const json = await res.json();
+  if (json.error) throw new Error(json.error);
+  return json;
+}
+
 function fmt(val, isRate = false) {
   if (val === null || val === undefined || val === '') return '—';
   if (isRate) return `${(val * 100).toFixed(1)}%`;
@@ -67,6 +79,10 @@ function Tag({ value }) {
     'Sequoia': { background: '#eff6ff', color: '#1d4ed8' },
     'Video Bridge': { background: '#faeeda', color: '#633806' },
     'Others': { background: '#f5f5f4', color: '#888' },
+    'Invalid Key': { background: '#fcebeb', color: '#791f1f' },
+    'No Credits': { background: '#fcebeb', color: '#791f1f' },
+    'Conn. Error': { background: '#fef9c3', color: '#854d0e' },
+    'Error': { background: '#fef9c3', color: '#854d0e' },
   };
   const s = styles[value] || styles['Skip'];
   return <span style={{ ...s, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, display: 'inline-block' }}>{value}</span>;
@@ -94,6 +110,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('tracker');
   const [trackerResults, setTrackerResults] = useState([]);
   const [postLinks, setPostLinks] = useState([]);
+  const [runError, setRunError] = useState(null);
   const logRef = useRef(null);
 
   useEffect(() => {
@@ -110,6 +127,10 @@ export default function Home() {
   }, []);
 
   const parsedDomains = domains.split('\n').map(d => d.trim()).filter(Boolean);
+  const invalidDomains = parsedDomains.filter(d => {
+    const clean = d.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    return !clean || clean.includes(' ') || !clean.includes('.');
+  });
   const isDone = currentStep === 12;
   const progress = currentStep > 0 ? Math.min((currentStep / 11) * 100, 100) : 0;
 
@@ -180,8 +201,9 @@ export default function Home() {
   }
 
   async function runAutomation() {
-    if (!parsedDomains.length) return;
+    if (!parsedDomains.length || invalidDomains.length > 0) return;
     setRunning(true);
+    setRunError(null);
     setLogs([]);
     setTrackerResults([]);
     setPostLinks([]);
@@ -190,6 +212,7 @@ export default function Home() {
 
     let tracker = parsedDomains.map(d => ({ domain: d }));
     let links = [];
+    let serpApiErrorSet = false;
 
     try {
       // Steps 1–3
@@ -197,15 +220,22 @@ export default function Home() {
       [1,2,3].forEach(s => setStepStatus(s, 'active'));
       setCurrentStep(1);
 
-      const r13 = await fetch('/api/steps/step1-3', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ domains: parsedDomains }),
-      }).then(r => r.json());
+      const r13 = await apiFetch('/api/steps/step1-3', { domains: parsedDomains });
 
       if (r13.results) {
+        if (r13.results.some(r => r.serpCount === 'Invalid Key')) {
+          setRunError({ message: 'Invalid SerpAPI key. Check your SERPAPI_KEY environment variable.', step: 2 });
+          serpApiErrorSet = true;
+          throw new Error('Invalid SerpAPI key');
+        }
+        if (r13.results.some(r => r.serpCount === 'No Credits')) {
+          setRunError({ message: 'SerpAPI credits exhausted. Add credits at serpapi.com to continue.', step: 2 });
+          serpApiErrorSet = true;
+          throw new Error('No SerpAPI credits');
+        }
         tracker = tracker.map((row, i) => ({ ...row, ...r13.results[i] }));
         setTrackerResults([...tracker]);
-        addLog(`✓ Steps 1–3 complete — ${r13.results.length} domains processed.`, 'success');
+        addLog(`Steps 1–3 complete — ${r13.results.length} domains processed.`, 'success');
         [1,2,3].forEach(s => setStepStatus(s, 'done'));
       }
 
@@ -214,10 +244,7 @@ export default function Home() {
       [4,5,6,7].forEach(s => setStepStatus(s, 'active'));
       setCurrentStep(4);
 
-      const r47 = await fetch('/api/steps/step4-7', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ domains: parsedDomains }),
-      }).then(r => r.json());
+      const r47 = await apiFetch('/api/steps/step4-7', { domains: parsedDomains });
 
       if (r47.trackerResults && r47.postLinks) {
         tracker = tracker.map((row, i) => ({ ...row, ...r47.trackerResults[i] }));
@@ -227,7 +254,7 @@ export default function Home() {
         const seq = links.filter(l => l.taskType === 'Sequoia').length;
         const vb = links.filter(l => l.taskType === 'Video Bridge').length;
         const others = links.filter(l => l.taskType === 'Others').length;
-        addLog(`✓ Steps 4–7 complete — ${links.length} posts. Sequoia: ${seq} | VB: ${vb} | Others: ${others}`, 'success');
+        addLog(`Steps 4–7 complete — ${links.length} posts. Sequoia: ${seq} | VB: ${vb} | Others: ${others}`, 'success');
         [4,5,6,7].forEach(s => setStepStatus(s, 'done'));
       }
 
@@ -241,12 +268,26 @@ export default function Home() {
       let allLinks = [...links];
 
       while (batchStart < links.length) {
-        const r8 = await fetch('/api/steps/step8', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ postLinks: links, batchStart, batchSize: 15 }),
-        }).then(r => r.json());
+        const r8 = await apiFetch('/api/steps/step8', { postLinks: links, batchStart, batchSize: 15 });
 
         if (r8.results) {
+          if (r8.results.some(r => r.indexStatus === 'Invalid Key')) {
+            setRunError({ message: 'Invalid SerpAPI key detected during indexation check.', step: 8 });
+            serpApiErrorSet = true;
+            throw new Error('Invalid SerpAPI key');
+          }
+          if (r8.results.some(r => r.indexStatus === 'No Credits')) {
+            setRunError({ message: 'SerpAPI credits exhausted during Step 8. Partial results saved below.', step: 8 });
+            serpApiErrorSet = true;
+            // Save partial results before stopping
+            r8.results.forEach((item, i) => {
+              const idx = batchStart + i;
+              if (idx < allLinks.length) allLinks[idx] = { ...allLinks[idx], indexStatus: item.indexStatus };
+            });
+            links = allLinks;
+            setPostLinks([...allLinks]);
+            throw new Error('No SerpAPI credits');
+          }
           r8.results.forEach((item, i) => {
             const idx = batchStart + i;
             if (idx < allLinks.length) allLinks[idx] = { ...allLinks[idx], indexStatus: item.indexStatus };
@@ -260,7 +301,7 @@ export default function Home() {
       }
 
       links = allLinks;
-      addLog(`✓ Step 8 complete — Indexed: ${links.filter(l=>l.indexStatus==='Indexed').length} | Unindexed: ${links.filter(l=>l.indexStatus==='Unindexed').length}`, 'success');
+      addLog(`Step 8 complete — Indexed: ${links.filter(l=>l.indexStatus==='Indexed').length} | Unindexed: ${links.filter(l=>l.indexStatus==='Unindexed').length}`, 'success');
       setStepStatus(8, 'done');
 
       // Steps 9–11
@@ -268,23 +309,21 @@ export default function Home() {
       [9,10,11].forEach(s => setStepStatus(s, 'active'));
       setCurrentStep(9);
 
-      const r910 = await fetch('/api/steps/step9-10', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postLinks: links, trackerDomains: parsedDomains }),
-      }).then(r => r.json());
+      const r910 = await apiFetch('/api/steps/step9-10', { postLinks: links, trackerDomains: parsedDomains });
 
       if (r910.results) {
         tracker = tracker.map((row, i) => ({ ...row, ...r910.results[i] }));
         setTrackerResults([...tracker]);
-        addLog('✓ Steps 9–11 complete.', 'success');
+        addLog('Steps 9–11 complete.', 'success');
         [9,10,11].forEach(s => setStepStatus(s, 'done'));
       }
 
-      addLog('🎉 All steps complete! Download your results below.', 'success');
+      addLog('All steps complete! Download your results below.', 'success');
       setCurrentStep(12);
 
     } catch (err) {
       addLog(`Error: ${err.message}`, 'error');
+      if (!serpApiErrorSet) setRunError({ message: err.message });
     } finally {
       setRunning(false);
     }
@@ -337,13 +376,18 @@ export default function Home() {
                   placeholder={'example.com\nhttps://site2.com\nwww.site3.com'}
                 />
                 <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>One domain per line. http:// optional.</div>
+                {invalidDomains.length > 0 && (
+                  <div style={{ fontSize: 11, color: '#b45309', marginTop: 6, background: '#fef9c3', padding: '6px 8px', borderRadius: 4, border: '1px solid #fde68a' }}>
+                    Invalid: {invalidDomains.join(', ')}
+                  </div>
+                )}
               </div>
             </div>
 
             <button
-              style={running || parsedDomains.length === 0 ? S.btnPrimaryDisabled : S.btnPrimary}
+              style={running || parsedDomains.length === 0 || invalidDomains.length > 0 ? S.btnPrimaryDisabled : S.btnPrimary}
               onClick={runAutomation}
-              disabled={running || parsedDomains.length === 0}
+              disabled={running || parsedDomains.length === 0 || invalidDomains.length > 0}
             >
               {running ? (
                 <>
@@ -404,6 +448,19 @@ export default function Home() {
                     <div style={S.statLabel}>{s.label}</div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {runError && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <span style={{ color: '#dc2626', fontSize: 18, flexShrink: 0, lineHeight: 1 }}>&#9888;</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, color: '#dc2626', fontSize: 13 }}>
+                    Run stopped{runError.step ? ` — Step ${runError.step} failed` : ''}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#7f1d1d', marginTop: 2 }}>{runError.message}</div>
+                </div>
+                <button onClick={() => setRunError(null)} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 20, padding: 0, lineHeight: 1 }}>&times;</button>
               </div>
             )}
 
