@@ -339,7 +339,7 @@ export default function Home() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ step2Credits, step8Credits }),
-        }).then(r => r.json()).then(setUsageData).catch(() => {});
+        }).then(() => fetch('/api/usage').then(r => r.json()).then(setUsageData)).catch(() => {});
       }
       setRunning(false);
     }

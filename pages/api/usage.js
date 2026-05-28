@@ -14,6 +14,10 @@ function monthKey(date = new Date()) {
 }
 
 export default async function handler(req, res) {
+  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+    return res.status(500).json({ error: 'Missing KV_REST_API_URL or KV_REST_API_TOKEN env vars' });
+  }
+
   if (req.method === 'GET') {
     const current = await redis.get(monthKey()) || { total: 0, runs: [] };
 
