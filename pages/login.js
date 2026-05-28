@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import Head from 'next/head';
-import { useRouter } from 'next/router';
 
 const ACCENT = '#95A940';
 const BORDER = '#e2e4da';
@@ -12,7 +11,6 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -25,7 +23,7 @@ export default function Login() {
         body: JSON.stringify({ password }),
       });
       if (res.ok) {
-        router.replace('/');
+        window.location.href = '/';
       } else {
         setError('Incorrect passcode. Try again.');
       }
