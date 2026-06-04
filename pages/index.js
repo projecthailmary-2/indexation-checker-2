@@ -101,6 +101,504 @@ function downloadCSV(filename, csv) {
   URL.revokeObjectURL(url);
 }
 
+// Unique ID for each completed run: timestamp + random tag so two people
+// saving at the same moment can never collide.
+function makeRunId() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  const rand = Math.random().toString(36).slice(2, 7);
+  return `r-${stamp}-${rand}`;
+}
+
+const selStyle = { background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '7px 10px', fontSize: 12, color: TEXT, outline: 'none', minWidth: 130 };
+const filterLabel = { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: 4, display: 'block' };
+
+// --- Dashboard helpers ---------------------------------------------------
+// Turn a stored "84.0%" string into the number 84 (or null if blank/N-A).
+function parsePct(v) {
+  if (v == null || v === '' || v === 'N/A') return null;
+  const n = parseFloat(String(v).replace('%', ''));
+  return Number.isFinite(n) ? n : null;
+}
+function fmtRate(n) { return n == null ? '—' : `${n.toFixed(1)}%`; }
+function isoDate(d) { return d.toISOString().slice(0, 10); }
+function shiftMonths(date, n) { const d = new Date(date); d.setMonth(d.getMonth() + n); return d; }
+function shiftDays(date, n) { const d = new Date(date); d.setDate(d.getDate() + n); return d; }
+
+// For each site, keep only its MOST RECENT check within [start, end] (inclusive
+// YYYY-MM-DD strings; blank = unbounded). Returns { domain: trackerRow }.
+function latestPerSite(rows, start, end) {
+  const out = {};
+  for (const r of rows) {
+    const d = (r['Run Date'] || '').slice(0, 10);
+    const dom = r['Domain'];
+    if (!d || !dom) continue;
+    if (start && d < start) continue;
+    if (end && d > end) continue;
+    if (!out[dom] || d > out[dom]._d) out[dom] = { ...r, _d: d };
+  }
+  return out;
+}
+// Library rate = simple average of each site's indexation rate (equal weight).
+function libraryRate(perSite) {
+  const vals = Object.values(perSite).map(r => parsePct(r['Indexation %'])).filter(v => v != null);
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+// Build the two comparison windows for a preset. "Recent" = B, "previous" = A.
+function presetRanges(preset, today, custom) {
+  if (preset === 'custom') return custom;
+  const bEnd = isoDate(today);
+  let bStart;
+  if (preset === '30d') bStart = shiftDays(today, -30);
+  else bStart = shiftMonths(today, preset === '3m' ? -3 : -6);
+  const aEnd = shiftDays(bStart, -1);
+  let aStart;
+  if (preset === '30d') aStart = shiftDays(aEnd, -30);
+  else aStart = shiftMonths(aEnd, preset === '3m' ? -3 : -6);
+  return { aStart: isoDate(aStart), aEnd: isoDate(aEnd), bStart: isoDate(bStart), bEnd };
+}
+
+// DASHBOARD — reads every saved run back from the Google Sheet (our database)
+// and lets you filter the history by date range, site, category and index status.
+function Dashboard({ active }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [data, setData] = useState({ tracker: [], postLinks: [] });
+
+  const [mode, setMode] = useState('sites'); // 'sites' | 'compare' | 'posts'
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [selectedSites, setSelectedSites] = useState([]); // empty = all
+  const [siteMenuOpen, setSiteMenuOpen] = useState(false);
+  const [category, setCategory] = useState('');
+  const [status, setStatus] = useState('');
+
+  const [preset, setPreset] = useState('6m'); // '6m' | '3m' | '30d' | 'custom'
+  const [custom, setCustom] = useState({ aStart: '', aEnd: '', bStart: '', bEnd: '' });
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch('/api/sheets/data');
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || `Load failed (${res.status})`);
+      setData({ tracker: json.tracker || [], postLinks: json.postLinks || [] });
+      setLoaded(true);
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { if (active && !loaded && !loading) load(); }, [active, loaded, loading, load]);
+
+  const allSites = [...new Set([...data.tracker, ...data.postLinks].map(r => r['Domain']).filter(Boolean))].sort();
+  const siteOk = dom => selectedSites.length === 0 || selectedSites.includes(dom);
+  const toggleSite = s => setSelectedSites(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+
+  // ---- SITES mode: one row per site = its most recent check in the date range
+  const sitesPerSite = latestPerSite(data.tracker.filter(r => siteOk(r['Domain'])), dateFrom, dateTo);
+  const siteRows = Object.values(sitesPerSite).sort((a, b) => (parsePct(b['Indexation %']) ?? -1) - (parsePct(a['Indexation %']) ?? -1));
+  const libRate = libraryRate(sitesPerSite);
+  const siteRateVals = siteRows.map(r => parsePct(r['Indexation %'])).filter(v => v != null);
+
+  // ---- COMPARE mode
+  const ranges = presetRanges(preset, new Date(), custom);
+  const compFilter = data.tracker.filter(r => siteOk(r['Domain']));
+  const perA = latestPerSite(compFilter, ranges.aStart, ranges.aEnd);
+  const perB = latestPerSite(compFilter, ranges.bStart, ranges.bEnd);
+  const compDomains = [...new Set([...Object.keys(perA), ...Object.keys(perB)])];
+  const compRows = compDomains.map(dom => {
+    const a = parsePct(perA[dom]?.['Indexation %']);
+    const b = parsePct(perB[dom]?.['Indexation %']);
+    const change = (a != null && b != null) ? b - a : null;
+    return { dom, a, b, change };
+  }).sort((x, y) => {
+    if (x.change == null && y.change == null) return (y.b ?? -1) - (x.b ?? -1);
+    if (x.change == null) return 1;
+    if (y.change == null) return -1;
+    return y.change - x.change;
+  });
+  const libA = libraryRate(perA);
+  const libB = libraryRate(perB);
+  const improved = compRows.filter(r => r.change != null && r.change > 0.05).length;
+  const declined = compRows.filter(r => r.change != null && r.change < -0.05).length;
+
+  // ---- POSTS mode
+  const postRows = data.postLinks.filter(r => {
+    if (!siteOk(r['Domain'])) return false;
+    const d = (r['Run Date'] || '').slice(0, 10);
+    if (dateFrom && d < dateFrom) return false;
+    if (dateTo && d > dateTo) return false;
+    if (category && r['Task Type'] !== category) return false;
+    if (status && r['Index Status'] !== status) return false;
+    return true;
+  });
+
+  const resetFilters = () => { setSelectedSites([]); setCategory(''); setStatus(''); setDateFrom(''); setDateTo(''); };
+
+  function changeCell(v) {
+    if (v == null) return <span style={{ color: '#aaa' }}>—</span>;
+    const flat = Math.abs(v) < 0.05;
+    const color = flat ? MUTED : v > 0 ? '#15803d' : '#dc2626';
+    const arrow = flat ? '→' : v > 0 ? '▲' : '▼';
+    return <span style={{ color, fontWeight: 600 }}>{arrow} {v > 0 ? '+' : ''}{v.toFixed(1)} pts</span>;
+  }
+
+  const siteFilterControl = (
+    <div style={{ position: 'relative' }}>
+      <span style={filterLabel}>Sites</span>
+      <button style={{ ...selStyle, cursor: 'pointer', textAlign: 'left' }} onClick={() => setSiteMenuOpen(o => !o)}>
+        {selectedSites.length === 0 ? 'All sites' : `${selectedSites.length} selected`} ▾
+      </button>
+      {siteMenuOpen && (
+        <div style={{ position: 'absolute', zIndex: 50, top: '100%', left: 0, marginTop: 4, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 240, maxHeight: 280, overflowY: 'auto', padding: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <button style={S.btnGhost} onClick={() => setSelectedSites([])}>Clear (all)</button>
+            <button style={S.btnGhost} onClick={() => setSiteMenuOpen(false)}>Done</button>
+          </div>
+          {allSites.length === 0 && <div style={{ fontSize: 12, color: MUTED, padding: 6 }}>No sites yet.</div>}
+          {allSites.map(s => (
+            <label key={s} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 2px', fontSize: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={selectedSites.includes(s)} onChange={() => toggleSite(s)} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const card = (label, value, accent) => (
+    <div style={{ ...S.statCard, flex: '1 1 130px', minWidth: 130 }}>
+      <div style={{ ...S.statVal, color: accent || TEXT }}>{value}</div>
+      <div style={S.statLabel}>{label}</div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: 14 }}>
+      {/* Mode switch + refresh */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <div style={{ display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 6, overflow: 'hidden' }}>
+          {[['sites', 'Sites'], ['compare', 'Compare periods'], ['posts', 'Posts']].map(([m, lbl]) => (
+            <button key={m} onClick={() => setMode(m)} style={{
+              background: mode === m ? ACCENT : '#fff', color: mode === m ? '#fff' : MUTED,
+              border: 'none', padding: '8px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            }}>{lbl}</button>
+          ))}
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {(mode === 'sites' || mode === 'posts') && <button style={S.btnGhost} onClick={resetFilters}>Reset filters</button>}
+          <button style={S.btnOutline} onClick={load} disabled={loading}>{loading ? 'Loading…' : '↻ Refresh'}</button>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '10px 14px', color: '#7f1d1d', fontSize: 12, marginBottom: 12 }}>{error}</div>
+      )}
+
+      {/* ============ SITES MODE ============ */}
+      {mode === 'sites' && (
+        <>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end', marginBottom: 14 }}>
+            {siteFilterControl}
+            <div><span style={filterLabel}>From</span><input type="date" style={selStyle} value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
+            <div><span style={filterLabel}>To</span><input type="date" style={selStyle} value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+            {card('Sites', siteRows.length)}
+            {card('Library indexation rate', fmtRate(libRate), ACCENT)}
+            {card('Highest', siteRateVals.length ? fmtRate(Math.max(...siteRateVals)) : '—', '#15803d')}
+            {card('Lowest', siteRateVals.length ? fmtRate(Math.min(...siteRateVals)) : '—', '#dc2626')}
+          </div>
+          <div style={{ fontSize: 11, color: MUTED, marginBottom: 12 }}>
+            Each site shown once, using its most recent check{(dateFrom || dateTo) ? ' in the selected dates' : ''}. Library rate = average across sites.
+          </div>
+          {loading && !loaded ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: 13 }}>Loading saved data…</div>
+          ) : siteRows.length === 0 ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: 13 }}>
+              {loaded ? 'No saved data matches these filters.' : 'No data yet — run the automation and click “Save to Sheet”.'}
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto', border: `1px solid ${BORDER}`, borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr>{['Domain', 'Latest check', 'Total Post', 'Total Indexed', 'Indexation %', 'Seq %', 'VB %', 'Priority'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {siteRows.map((r, i) => (
+                    <tr key={i}>
+                      <td style={{ ...S.td, fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r['Domain']}</td>
+                      <td style={{ ...S.td, whiteSpace: 'nowrap', color: MUTED }}>{r._d}</td>
+                      <td style={{ ...S.td, textAlign: 'right' }}>{r['Total Post'] || '—'}</td>
+                      <td style={{ ...S.td, textAlign: 'right' }}>{r['Total Indexed'] || '—'}</td>
+                      <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: ACCENT }}>{r['Indexation %'] || '—'}</td>
+                      <td style={{ ...S.td, textAlign: 'right', color: '#2563eb' }}>{r['Seq Indexation %'] || '—'}</td>
+                      <td style={{ ...S.td, textAlign: 'right', color: '#c2410c' }}>{r['VB Indexation %'] || '—'}</td>
+                      <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{r['Priority Score'] || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ============ COMPARE MODE ============ */}
+      {mode === 'compare' && (
+        <>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end', marginBottom: 14 }}>
+            <div>
+              <span style={filterLabel}>Compare</span>
+              <select style={selStyle} value={preset} onChange={e => setPreset(e.target.value)}>
+                <option value="6m">Last 6 months vs previous 6 months</option>
+                <option value="3m">Last 3 months vs previous 3 months</option>
+                <option value="30d">Last 30 days vs previous 30 days</option>
+                <option value="custom">Custom date ranges</option>
+              </select>
+            </div>
+            {siteFilterControl}
+            {preset === 'custom' && (
+              <>
+                <div><span style={filterLabel}>Earlier from</span><input type="date" style={selStyle} value={custom.aStart} onChange={e => setCustom(c => ({ ...c, aStart: e.target.value }))} /></div>
+                <div><span style={filterLabel}>Earlier to</span><input type="date" style={selStyle} value={custom.aEnd} onChange={e => setCustom(c => ({ ...c, aEnd: e.target.value }))} /></div>
+                <div><span style={filterLabel}>Recent from</span><input type="date" style={selStyle} value={custom.bStart} onChange={e => setCustom(c => ({ ...c, bStart: e.target.value }))} /></div>
+                <div><span style={filterLabel}>Recent to</span><input type="date" style={selStyle} value={custom.bEnd} onChange={e => setCustom(c => ({ ...c, bEnd: e.target.value }))} /></div>
+              </>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+            {card(`Earlier (${ranges.aStart || '…'} → ${ranges.aEnd || '…'})`, fmtRate(libA))}
+            {card(`Recent (${ranges.bStart || '…'} → ${ranges.bEnd || '…'})`, fmtRate(libB), ACCENT)}
+            {card('Library change', (libA != null && libB != null) ? changeCell(libB - libA) : '—')}
+            {card('Improved', improved, '#15803d')}
+            {card('Declined', declined, '#dc2626')}
+          </div>
+          <div style={{ fontSize: 11, color: MUTED, marginBottom: 12 }}>
+            “pts” = change in percentage points. Each site uses its most recent check within each period; sorted by biggest improvement.
+          </div>
+          {loading && !loaded ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: 13 }}>Loading saved data…</div>
+          ) : compRows.length === 0 ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: 13 }}>
+              {loaded ? 'No saved checks fall in these periods yet.' : 'No data yet — run the automation and click “Save to Sheet”.'}
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto', border: `1px solid ${BORDER}`, borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr>{['Domain', 'Earlier', 'Recent', 'Change'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {compRows.map((r, i) => (
+                    <tr key={i}>
+                      <td style={{ ...S.td, fontWeight: 500, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.dom}</td>
+                      <td style={{ ...S.td, textAlign: 'right', color: MUTED }}>{fmtRate(r.a)}</td>
+                      <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: ACCENT }}>{fmtRate(r.b)}</td>
+                      <td style={{ ...S.td, textAlign: 'right' }}>{changeCell(r.change)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ============ POSTS MODE ============ */}
+      {mode === 'posts' && (
+        <>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end', marginBottom: 14 }}>
+            {siteFilterControl}
+            <div><span style={filterLabel}>From</span><input type="date" style={selStyle} value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
+            <div><span style={filterLabel}>To</span><input type="date" style={selStyle} value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
+            <div>
+              <span style={filterLabel}>Category</span>
+              <select style={selStyle} value={category} onChange={e => setCategory(e.target.value)}>
+                <option value="">All categories</option>
+                {['Sequoia', 'Video Bridge', 'Others'].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <span style={filterLabel}>Index Status</span>
+              <select style={selStyle} value={status} onChange={e => setStatus(e.target.value)}>
+                <option value="">All statuses</option>
+                {['Indexed', 'Unindexed', 'Skip'].map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+            {card('Posts', postRows.length.toLocaleString())}
+            {card('Indexed', postRows.filter(r => r['Index Status'] === 'Indexed').length.toLocaleString(), '#15803d')}
+            {card('Unindexed', postRows.filter(r => r['Index Status'] === 'Unindexed').length.toLocaleString(), '#dc2626')}
+          </div>
+          {loading && !loaded ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: 13 }}>Loading saved data…</div>
+          ) : postRows.length === 0 ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: 13 }}>
+              {loaded ? 'No saved posts match these filters.' : 'No data yet — run the automation and click “Save to Sheet”.'}
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto', border: `1px solid ${BORDER}`, borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr>{['Run Date', 'Domain', 'Post Link', 'Pub Date', 'Task Type', 'Index Status'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {postRows.map((r, i) => (
+                    <tr key={i}>
+                      <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{(r['Run Date'] || '').slice(0, 10)}</td>
+                      <td style={{ ...S.td, fontSize: 12, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r['Domain']}</td>
+                      <td style={{ ...S.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <a href={r['Post Link']} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 12 }}>{r['Post Link']}</a>
+                      </td>
+                      <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{r['Pub Date'] || '—'}</td>
+                      <td style={S.td}><Tag value={r['Task Type']} /></td>
+                      <td style={S.td}><Tag value={r['Index Status']} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Standalone URL indexation checker — paste URLs, check each via the Google
+// site: operator (3 attempts each), copy/paste the results out.
+function IndexChecker({ onCreditsLogged }) {
+  const [input, setInput] = useState('');
+  const [running, setRunning] = useState(false);
+  const [results, setResults] = useState([]);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const urls = input.split('\n').map(u => u.trim()).filter(Boolean);
+
+  async function run() {
+    if (!urls.length || running) return;
+    setRunning(true); setError(null); setResults([]); setCopied(false);
+    setProgress({ done: 0, total: urls.length });
+    const all = [];
+    try {
+      const chunk = 10;
+      for (let i = 0; i < urls.length; i += chunk) {
+        const batch = urls.slice(i, i + chunk);
+        const res = await fetch('/api/index-check', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls: batch }),
+        });
+        const json = await res.json();
+        if (!res.ok || json.error) throw new Error(json.error || `Check failed (${res.status})`);
+        all.push(...json.results);
+        setResults([...all]);
+        setProgress({ done: Math.min(i + batch.length, urls.length), total: urls.length });
+        if (json.halt) { setError(`Stopped — ${json.halt.detail}. Fix it and run again.`); break; }
+      }
+    } catch (e) { setError(e.message); }
+    finally {
+      setRunning(false);
+      // Log SerpApi credits used (one per attempt) to the monthly tracker.
+      const used = all.reduce((a, r) => a + (r.attempts || 0), 0);
+      if (used > 0) {
+        fetch('/api/usage', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ indexCheckCredits: used }),
+        }).then(() => onCreditsLogged && onCreditsLogged()).catch(() => {});
+      }
+    }
+  }
+
+  function copyResults() {
+    const header = ['URL', 'Status', 'Details'].join('\t');
+    const lines = results.map(r => [r.url, r.status, r.detail].join('\t'));
+    navigator.clipboard.writeText([header, ...lines].join('\n'))
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
+      .catch(() => setError('Could not copy to clipboard.'));
+  }
+
+  function downloadResults() {
+    const headers = ['URL', 'Status', 'Details', 'Attempts'];
+    const rows = results.map(r => [r.url, r.status, r.detail, r.attempts]);
+    downloadCSV('indexation-check.csv', toCSV(rows, headers));
+  }
+
+  const counts = {
+    indexed: results.filter(r => r.status === 'Indexed').length,
+    unindexed: results.filter(r => r.status === 'Unindexed').length,
+    errors: results.filter(r => r.status !== 'Indexed' && r.status !== 'Unindexed').length,
+  };
+
+  return (
+    <div style={{ padding: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16, alignItems: 'start' }}>
+        {/* Input */}
+        <div>
+          <span style={filterLabel}>URLs to check (one per line)</span>
+          <textarea
+            style={{ ...S.textarea, height: 260 }}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            disabled={running}
+            placeholder={'https://example.com/post-1\nexample.com/post-2'}
+          />
+          <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>
+            {urls.length} URL{urls.length === 1 ? '' : 's'} · checked with Google’s site: operator · up to 3 tries each.
+          </div>
+          <button
+            style={{ ...(running || !urls.length ? S.btnPrimaryDisabled : S.btnPrimary), marginTop: 10 }}
+            onClick={run} disabled={running || !urls.length}
+          >
+            {running ? `Checking ${progress.done}/${progress.total}…` : '▶ Check Indexation'}
+          </button>
+          {error && (
+            <div style={{ marginTop: 8, fontSize: 12, background: '#fef2f2', border: '1px solid #fca5a5', color: '#7f1d1d', borderRadius: 6, padding: '8px 10px' }}>{error}</div>
+          )}
+        </div>
+
+        {/* Results */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <span style={{ ...S.badge, background: '#eaf3de', color: '#27500a' }}>Indexed {counts.indexed}</span>
+              <span style={{ ...S.badge, background: '#fcebeb', color: '#791f1f' }}>Unindexed {counts.unindexed}</span>
+              {counts.errors > 0 && <span style={{ ...S.badge, background: '#fef9c3', color: '#854d0e' }}>Errors {counts.errors}</span>}
+            </div>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+              <button style={{ ...S.btnOutline, opacity: results.length ? 1 : 0.5 }} onClick={copyResults} disabled={!results.length}>{copied ? '✓ Copied' : '⧉ Copy results'}</button>
+              <button style={{ ...S.btnGhost, opacity: results.length ? 1 : 0.5 }} onClick={downloadResults} disabled={!results.length}>↓ CSV</button>
+            </div>
+          </div>
+
+          {results.length === 0 ? (
+            <div style={{ padding: '48px 0', textAlign: 'center', color: MUTED, fontSize: 13 }}>
+              {running ? 'Checking…' : 'Paste URLs and click Check Indexation.'}
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto', border: `1px solid ${BORDER}`, borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr>{['#', 'URL', 'Status', 'Details'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {results.map((r, i) => (
+                    <tr key={i}>
+                      <td style={{ ...S.td, color: '#bbb', fontSize: 11, width: 36 }}>{i + 1}</td>
+                      <td style={{ ...S.td, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <a href={r.url.startsWith('http') ? r.url : `https://${r.url}`} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 12 }}>{r.url}</a>
+                      </td>
+                      <td style={S.td}><Tag value={r.status} /></td>
+                      <td style={{ ...S.td, color: MUTED, fontSize: 12 }}>{r.detail}{r.attempts > 1 ? ` (${r.attempts} tries)` : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [domains, setDomains] = useState('');
   const [running, setRunning] = useState(false);
@@ -112,11 +610,20 @@ export default function Home() {
   const [postLinks, setPostLinks] = useState([]);
   const [runError, setRunError] = useState(null);
   const [usageData, setUsageData] = useState(null);
+  const [runId, setRunId] = useState(null);
+  const [savingSheet, setSavingSheet] = useState(false);
+  const [sheetSaved, setSheetSaved] = useState(false);
+  const [sheetMsg, setSheetMsg] = useState(null); // { type, text }
+  const [loadingSites, setLoadingSites] = useState(false);
+  const [loadSitesMsg, setLoadSitesMsg] = useState(null); // { type, text }
+  const [siteLimit, setSiteLimit] = useState(50);
   const logRef = useRef(null);
 
-  useEffect(() => {
+  const refreshUsage = useCallback(() => {
     fetch('/api/usage').then(r => r.json()).then(setUsageData).catch(() => {});
   }, []);
+
+  useEffect(() => { refreshUsage(); }, [refreshUsage]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -205,6 +712,67 @@ export default function Home() {
     downloadCSV('salvage-sequoias.csv', toCSV(rows, headers));
   }
 
+  // Load the site list straight from the TRACKING- MAINTENANCE/REHAB tab.
+  async function handleLoadSites() {
+    if (loadingSites || running) return;
+    setLoadingSites(true);
+    setLoadSitesMsg(null);
+    try {
+      const n = parseInt(siteLimit, 10);
+      const qs = Number.isFinite(n) && n > 0 ? `?limit=${n}` : '';
+      const res = await fetch(`/api/tracking/sites${qs}`);
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || `Load failed (${res.status})`);
+      setDomains((json.domains || []).join('\n'));
+      const checkedNote = json.oldestChecked ? `oldest last-checked: ${json.oldestChecked}` : '';
+      setLoadSitesMsg({
+        type: 'success',
+        text: `Loaded ${json.count} of ${json.total} sites (least-recently-checked first; ${json.neverChecked} never checked)${checkedNote ? ` · ${checkedNote}` : ''}.`,
+      });
+    } catch (err) {
+      setLoadSitesMsg({ type: 'error', text: err.message });
+    } finally {
+      setLoadingSites(false);
+    }
+  }
+
+  // Write the finished run's measured values back into the TRACKING tab.
+  async function handleSaveToSheet() {
+    if (savingSheet || sheetSaved || !trackerResults.length) return;
+    setSavingSheet(true);
+    setSheetMsg(null);
+    try {
+      const results = trackerResults.map(r => ({
+        domain: r.domain,
+        serpCount: r.serpCount,
+        wpCount: r.wpCount,
+        totalSequoia: r.totalSequoia,
+        indexedSequoia: r.indexedSequoia,
+        rate: r.rate,
+        seqRate: r.seqRate,
+      }));
+      const res = await fetch('/api/tracking/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ results }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || `Write failed (${res.status})`);
+      setSheetSaved(true);
+      const parts = [`Updated ${json.updated} site${json.updated === 1 ? '' : 's'}`];
+      if (json.errored) parts.push(`${json.errored} marked down/error`);
+      if (json.formulaSkips) parts.push(`skipped ${json.formulaSkips} formula cell${json.formulaSkips === 1 ? '' : 's'}`);
+      if (json.notFound?.length) parts.push(`${json.notFound.length} not found in sheet`);
+      if (json.history?.logged) parts.push(`logged ${json.history.logged} to history`);
+      if (json.history?.error) parts.push(`history log failed (${json.history.error})`);
+      setSheetMsg({ type: 'success', text: parts.join(' · ') + '.' });
+    } catch (err) {
+      setSheetMsg({ type: 'error', text: err.message });
+    } finally {
+      setSavingSheet(false);
+    }
+  }
+
   async function runAutomation() {
     if (!parsedDomains.length || invalidDomains.length > 0) return;
     setRunning(true);
@@ -214,6 +782,9 @@ export default function Home() {
     setPostLinks([]);
     setStepStatuses({});
     setCurrentStep(0);
+    setRunId(null);
+    setSheetSaved(false);
+    setSheetMsg(null);
 
     let tracker = parsedDomains.map(d => ({ domain: d }));
     let links = [];
@@ -328,6 +899,7 @@ export default function Home() {
       }
 
       addLog('All steps complete! Download your results below.', 'success');
+      setRunId(makeRunId());
       setCurrentStep(12);
 
     } catch (err) {
@@ -366,6 +938,13 @@ export default function Home() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {isDone && (
               <>
+                <button
+                  style={savingSheet || sheetSaved ? { ...S.btnOutline, opacity: 0.6, cursor: 'default', background: sheetSaved ? ACCENT_LIGHT : '#fff' } : { ...S.btnPrimary, width: 'auto', padding: '7px 14px', fontSize: 12 }}
+                  onClick={handleSaveToSheet}
+                  disabled={savingSheet || sheetSaved}
+                >
+                  {savingSheet ? 'Writing…' : sheetSaved ? '✓ Written to Sheet' : '↑ Write to Sheet'}
+                </button>
                 <button style={S.btnOutline} onClick={handleDownloadTracker}>↓ Tracker CSV</button>
                 <button style={S.btnOutline} onClick={handleDownloadPostLinks}>↓ Post Links CSV</button>
                 <button style={{ ...S.btnOutline, borderColor: '#dc2626', color: '#dc2626' }} onClick={handleDownloadSalvage}>↓ Salvage Sequoias</button>
@@ -381,9 +960,10 @@ export default function Home() {
         </header>
 
         {/* BODY */}
-        <div style={S.body}>
+        <div style={{ ...S.body, gridTemplateColumns: activeTab === 'indexcheck' ? '1fr' : '268px 1fr' }}>
 
-          {/* SIDEBAR */}
+          {/* SIDEBAR — hidden for the standalone URL Index Checker (it has its own input) */}
+          {activeTab !== 'indexcheck' && (
           <aside style={S.sidebar}>
 
             <div style={S.card}>
@@ -400,6 +980,31 @@ export default function Home() {
                   placeholder={'example.com\nhttps://site2.com\nwww.site3.com'}
                 />
                 <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>One domain per line. http:// optional.</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                  <label style={{ fontSize: 11, color: MUTED, whiteSpace: 'nowrap' }}>Sites to check</label>
+                  <input
+                    type="number" min="1" value={siteLimit}
+                    onChange={e => setSiteLimit(e.target.value)}
+                    disabled={loadingSites || running}
+                    style={{ width: 70, ...selStyle, minWidth: 0, padding: '6px 8px' }}
+                  />
+                  <span style={{ fontSize: 10, color: '#aaa' }}>blank = all</span>
+                </div>
+                <button
+                  style={{ ...S.btnOutline, width: '100%', textAlign: 'center', marginTop: 8, opacity: loadingSites || running ? 0.6 : 1 }}
+                  onClick={handleLoadSites}
+                  disabled={loadingSites || running}
+                >
+                  {loadingSites ? 'Loading…' : '↓ Load oldest-checked sites'}
+                </button>
+                {loadSitesMsg && (
+                  <div style={{
+                    fontSize: 11, padding: '6px 8px', borderRadius: 4, marginTop: 8,
+                    background: loadSitesMsg.type === 'error' ? '#fef2f2' : ACCENT_LIGHT,
+                    color: loadSitesMsg.type === 'error' ? '#7f1d1d' : '#4a5520',
+                    border: `1px solid ${loadSitesMsg.type === 'error' ? '#fca5a5' : '#cdd9a8'}`,
+                  }}>{loadSitesMsg.text}</div>
+                )}
                 {invalidDomains.length > 0 && (
                   <div style={{ fontSize: 11, color: '#b45309', marginTop: 6, background: '#fef9c3', padding: '6px 8px', borderRadius: 4, border: '1px solid #fde68a' }}>
                     Invalid: {invalidDomains.join(', ')}
@@ -470,6 +1075,21 @@ export default function Home() {
               <div style={S.card}>
                 <div style={S.cardHeader}><span style={S.cardHeaderLabel}>Export Results</span></div>
                 <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button
+                    style={savingSheet || sheetSaved ? { ...S.btnPrimaryDisabled } : { ...S.btnPrimary }}
+                    onClick={handleSaveToSheet}
+                    disabled={savingSheet || sheetSaved}
+                  >
+                    {savingSheet ? 'Writing…' : sheetSaved ? '✓ Written to Sheet' : '↑ Write to Sheet'}
+                  </button>
+                  {sheetMsg && (
+                    <div style={{
+                      fontSize: 11, padding: '6px 8px', borderRadius: 4,
+                      background: sheetMsg.type === 'error' ? '#fef2f2' : sheetMsg.type === 'success' ? ACCENT_LIGHT : '#f5f5f4',
+                      color: sheetMsg.type === 'error' ? '#7f1d1d' : sheetMsg.type === 'success' ? '#4a5520' : MUTED,
+                      border: `1px solid ${sheetMsg.type === 'error' ? '#fca5a5' : sheetMsg.type === 'success' ? '#cdd9a8' : BORDER}`,
+                    }}>{sheetMsg.text}</div>
+                  )}
                   <button style={{ ...S.btnOutline, width: '100%', textAlign: 'center' }} onClick={handleDownloadTracker}>↓ Tracker CSV</button>
                   <button style={{ ...S.btnGhost, width: '100%', textAlign: 'center' }} onClick={handleDownloadPostLinks}>↓ Post Links CSV</button>
                   <button style={{ ...S.btnGhost, width: '100%', textAlign: 'center', borderColor: '#dc2626', color: '#dc2626' }} onClick={handleDownloadSalvage}>↓ Salvage Sequoias CSV</button>
@@ -477,6 +1097,7 @@ export default function Home() {
               </div>
             )}
           </aside>
+          )}
 
           {/* MAIN */}
           <main style={S.mainContent}>
@@ -516,6 +1137,8 @@ export default function Home() {
                     { id: 'tracker', label: 'Tracker', count: trackerResults.length },
                     { id: 'postlinks', label: 'Post Links', count: postLinks.length },
                     { id: 'salvage', label: 'Salvage Sequoias', count: postLinks.filter(l => l.taskType === 'Sequoia' && l.indexStatus === 'Unindexed').length },
+                    { id: 'dashboard', label: 'Dashboard', count: null },
+                    { id: 'indexcheck', label: 'URL Index Checker', count: null },
                     { id: 'usage', label: 'Usage', count: usageData?.current?.runs?.length ?? 0 },
                     { id: 'log', label: 'Log', count: logs.filter(l => l.type === 'error').length || null },
                   ].map(tab => (
@@ -527,12 +1150,12 @@ export default function Home() {
                       letterSpacing: '0.06em', textTransform: 'uppercase',
                       padding: '10px 16px', marginBottom: -1, transition: 'all 0.15s',
                     }}>
-                      {tab.label} <span style={{ opacity: 0.6 }}>({tab.count})</span>
+                      {tab.label}{tab.count != null && <span style={{ opacity: 0.6 }}> ({tab.count})</span>}
                     </button>
                   ))}
                 </div>
 
-                <div style={S.tableWrap}>
+                <div style={(activeTab === 'dashboard' || activeTab === 'indexcheck') ? {} : S.tableWrap}>
 
                   {/* TRACKER TABLE */}
                   {activeTab === 'tracker' && (
@@ -634,6 +1257,12 @@ export default function Home() {
                     );
                   })()}
 
+                  {/* DASHBOARD TAB */}
+                  {activeTab === 'dashboard' && <Dashboard active={activeTab === 'dashboard'} />}
+
+                  {/* URL INDEX CHECKER TAB */}
+                  {activeTab === 'indexcheck' && <IndexChecker onCreditsLogged={refreshUsage} />}
+
                   {/* USAGE TAB */}
                   {activeTab === 'usage' && (
                     <div style={{ padding: '16px 14px' }}>
@@ -649,7 +1278,7 @@ export default function Home() {
                               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                                 <thead>
                                   <tr>
-                                    {['Date', 'Time', 'Step 2 (domains)', 'Step 8 (posts)', 'Total'].map(h => (
+                                    {['Date', 'Time', 'Step 2 (domains)', 'Step 8 (posts)', 'URL checks', 'Total'].map(h => (
                                       <th key={h} style={S.th}>{h}</th>
                                     ))}
                                   </tr>
@@ -663,6 +1292,7 @@ export default function Home() {
                                         <td style={S.td}>{d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                                         <td style={{ ...S.td, textAlign: 'right' }}>{run.step2}</td>
                                         <td style={{ ...S.td, textAlign: 'right' }}>{run.step8}</td>
+                                        <td style={{ ...S.td, textAlign: 'right' }}>{run.indexCheck ?? 0}</td>
                                         <td style={{ ...S.td, textAlign: 'right', fontWeight: 600 }}>{run.total}</td>
                                       </tr>
                                     );
