@@ -101,6 +101,142 @@ function downloadCSV(filename, csv) {
   URL.revokeObjectURL(url);
 }
 
+// Standalone URL indexation checker — paste URLs, check each via the Google
+// site: operator (3 attempts each), copy/paste the results out.
+function IndexChecker({ onCreditsLogged }) {
+  const [input, setInput] = useState('');
+  const [running, setRunning] = useState(false);
+  const [results, setResults] = useState([]);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const labelStyle = { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: 4, display: 'block' };
+  const urls = input.split('\n').map(u => u.trim()).filter(Boolean);
+
+  async function run() {
+    if (!urls.length || running) return;
+    setRunning(true); setError(null); setResults([]); setCopied(false);
+    setProgress({ done: 0, total: urls.length });
+    const all = [];
+    try {
+      const chunk = 10;
+      for (let i = 0; i < urls.length; i += chunk) {
+        const batch = urls.slice(i, i + chunk);
+        const res = await fetch('/api/index-check', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls: batch }),
+        });
+        const json = await res.json();
+        if (!res.ok || json.error) throw new Error(json.error || `Check failed (${res.status})`);
+        all.push(...json.results);
+        setResults([...all]);
+        setProgress({ done: Math.min(i + batch.length, urls.length), total: urls.length });
+        if (json.halt) { setError(`Stopped — ${json.halt.detail}. Fix it and run again.`); break; }
+      }
+    } catch (e) { setError(e.message); }
+    finally {
+      setRunning(false);
+      const used = all.reduce((a, r) => a + (r.attempts || 0), 0);
+      if (used > 0) {
+        fetch('/api/usage', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ indexCheckCredits: used }),
+        }).then(() => onCreditsLogged && onCreditsLogged()).catch(() => {});
+      }
+    }
+  }
+
+  function copyResults() {
+    const header = ['URL', 'Status', 'Details'].join('\t');
+    const lines = results.map(r => [r.url, r.status, r.detail].join('\t'));
+    navigator.clipboard.writeText([header, ...lines].join('\n'))
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })
+      .catch(() => setError('Could not copy to clipboard.'));
+  }
+
+  function downloadResults() {
+    const headers = ['URL', 'Status', 'Details', 'Attempts'];
+    const rows = results.map(r => [r.url, r.status, r.detail, r.attempts]);
+    downloadCSV('indexation-check.csv', toCSV(rows, headers));
+  }
+
+  const counts = {
+    indexed: results.filter(r => r.status === 'Indexed').length,
+    unindexed: results.filter(r => r.status === 'Unindexed').length,
+    errors: results.filter(r => r.status !== 'Indexed' && r.status !== 'Unindexed').length,
+  };
+
+  return (
+    <div style={{ padding: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16, alignItems: 'start' }}>
+        {/* Input */}
+        <div>
+          <span style={labelStyle}>URLs to check (one per line)</span>
+          <textarea
+            style={{ ...S.textarea, height: 260 }}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            disabled={running}
+            placeholder={'https://example.com/post-1\nexample.com/post-2'}
+          />
+          <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>
+            {urls.length} URL{urls.length === 1 ? '' : 's'} · checked with Google’s site: operator · up to 3 tries each.
+          </div>
+          <button
+            style={{ ...(running || !urls.length ? S.btnPrimaryDisabled : S.btnPrimary), marginTop: 10 }}
+            onClick={run} disabled={running || !urls.length}
+          >
+            {running ? `Checking ${progress.done}/${progress.total}…` : '▶ Check Indexation'}
+          </button>
+          {error && (
+            <div style={{ marginTop: 8, fontSize: 12, background: '#fef2f2', border: '1px solid #fca5a5', color: '#7f1d1d', borderRadius: 6, padding: '8px 10px' }}>{error}</div>
+          )}
+        </div>
+
+        {/* Results */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <span style={{ ...S.badge, background: '#eaf3de', color: '#27500a' }}>Indexed {counts.indexed}</span>
+              <span style={{ ...S.badge, background: '#fcebeb', color: '#791f1f' }}>Unindexed {counts.unindexed}</span>
+              {counts.errors > 0 && <span style={{ ...S.badge, background: '#fef9c3', color: '#854d0e' }}>Errors {counts.errors}</span>}
+            </div>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+              <button style={{ ...S.btnOutline, opacity: results.length ? 1 : 0.5 }} onClick={copyResults} disabled={!results.length}>{copied ? '✓ Copied' : '⧉ Copy results'}</button>
+              <button style={{ ...S.btnGhost, opacity: results.length ? 1 : 0.5 }} onClick={downloadResults} disabled={!results.length}>↓ CSV</button>
+            </div>
+          </div>
+
+          {results.length === 0 ? (
+            <div style={{ padding: '48px 0', textAlign: 'center', color: MUTED, fontSize: 13 }}>
+              {running ? 'Checking…' : 'Paste URLs and click Check Indexation.'}
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto', border: `1px solid ${BORDER}`, borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr>{['#', 'URL', 'Status', 'Details'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {results.map((r, i) => (
+                    <tr key={i}>
+                      <td style={{ ...S.td, color: '#bbb', fontSize: 11, width: 36 }}>{i + 1}</td>
+                      <td style={{ ...S.td, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <a href={r.url.startsWith('http') ? r.url : `https://${r.url}`} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 12 }}>{r.url}</a>
+                      </td>
+                      <td style={S.td}><Tag value={r.status} /></td>
+                      <td style={{ ...S.td, color: MUTED, fontSize: 12 }}>{r.detail}{r.attempts > 1 ? ` (${r.attempts} tries)` : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [domains, setDomains] = useState('');
   const [running, setRunning] = useState(false);
@@ -114,9 +250,11 @@ export default function Home() {
   const [usageData, setUsageData] = useState(null);
   const logRef = useRef(null);
 
-  useEffect(() => {
+  const refreshUsage = useCallback(() => {
     fetch('/api/usage').then(r => r.json()).then(setUsageData).catch(() => {});
   }, []);
+
+  useEffect(() => { refreshUsage(); }, [refreshUsage]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -381,9 +519,10 @@ export default function Home() {
         </header>
 
         {/* BODY */}
-        <div style={S.body}>
+        <div style={{ ...S.body, gridTemplateColumns: activeTab === 'indexcheck' ? '1fr' : '268px 1fr' }}>
 
-          {/* SIDEBAR */}
+          {/* SIDEBAR — hidden for the standalone URL Index Checker (it has its own input) */}
+          {activeTab !== 'indexcheck' && (
           <aside style={S.sidebar}>
 
             <div style={S.card}>
@@ -477,6 +616,7 @@ export default function Home() {
               </div>
             )}
           </aside>
+          )}
 
           {/* MAIN */}
           <main style={S.mainContent}>
@@ -516,6 +656,7 @@ export default function Home() {
                     { id: 'tracker', label: 'Tracker', count: trackerResults.length },
                     { id: 'postlinks', label: 'Post Links', count: postLinks.length },
                     { id: 'salvage', label: 'Salvage Sequoias', count: postLinks.filter(l => l.taskType === 'Sequoia' && l.indexStatus === 'Unindexed').length },
+                    { id: 'indexcheck', label: 'URL Index Checker', count: null },
                     { id: 'usage', label: 'Usage', count: usageData?.current?.runs?.length ?? 0 },
                     { id: 'log', label: 'Log', count: logs.filter(l => l.type === 'error').length || null },
                   ].map(tab => (
@@ -527,12 +668,12 @@ export default function Home() {
                       letterSpacing: '0.06em', textTransform: 'uppercase',
                       padding: '10px 16px', marginBottom: -1, transition: 'all 0.15s',
                     }}>
-                      {tab.label} <span style={{ opacity: 0.6 }}>({tab.count})</span>
+                      {tab.label}{tab.count != null && <span style={{ opacity: 0.6 }}> ({tab.count})</span>}
                     </button>
                   ))}
                 </div>
 
-                <div style={S.tableWrap}>
+                <div style={activeTab === 'indexcheck' ? {} : S.tableWrap}>
 
                   {/* TRACKER TABLE */}
                   {activeTab === 'tracker' && (
@@ -634,6 +775,9 @@ export default function Home() {
                     );
                   })()}
 
+                  {/* URL INDEX CHECKER TAB */}
+                  {activeTab === 'indexcheck' && <IndexChecker onCreditsLogged={refreshUsage} />}
+
                   {/* USAGE TAB */}
                   {activeTab === 'usage' && (
                     <div style={{ padding: '16px 14px' }}>
@@ -649,7 +793,7 @@ export default function Home() {
                               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                                 <thead>
                                   <tr>
-                                    {['Date', 'Time', 'Step 2 (domains)', 'Step 8 (posts)', 'Total'].map(h => (
+                                    {['Date', 'Time', 'Step 2 (domains)', 'Step 8 (posts)', 'URL checks', 'Total'].map(h => (
                                       <th key={h} style={S.th}>{h}</th>
                                     ))}
                                   </tr>
@@ -663,6 +807,7 @@ export default function Home() {
                                         <td style={S.td}>{d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                                         <td style={{ ...S.td, textAlign: 'right' }}>{run.step2}</td>
                                         <td style={{ ...S.td, textAlign: 'right' }}>{run.step8}</td>
+                                        <td style={{ ...S.td, textAlign: 'right' }}>{run.indexCheck ?? 0}</td>
                                         <td style={{ ...S.td, textAlign: 'right', fontWeight: 600 }}>{run.total}</td>
                                       </tr>
                                     );

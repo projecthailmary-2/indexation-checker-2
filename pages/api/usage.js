@@ -34,8 +34,8 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { step2Credits = 0, step8Credits = 0 } = req.body;
-    const runTotal = step2Credits + step8Credits;
+    const { step2Credits = 0, step8Credits = 0, indexCheckCredits = 0 } = req.body;
+    const runTotal = step2Credits + step8Credits + indexCheckCredits;
     if (runTotal === 0) return res.status(200).json({ ok: true });
 
     const key = monthKey();
@@ -43,7 +43,7 @@ export default async function handler(req, res) {
     const updated = {
       total: existing.total + runTotal,
       runs: [
-        { ts: new Date().toISOString(), step2: step2Credits, step8: step8Credits, total: runTotal },
+        { ts: new Date().toISOString(), step2: step2Credits, step8: step8Credits, indexCheck: indexCheckCredits, total: runTotal },
         ...existing.runs,
       ],
     };
