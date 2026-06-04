@@ -1260,8 +1260,10 @@ export default function Home() {
                   {/* DASHBOARD TAB */}
                   {activeTab === 'dashboard' && <Dashboard active={activeTab === 'dashboard'} />}
 
-                  {/* URL INDEX CHECKER TAB */}
-                  {activeTab === 'indexcheck' && <IndexChecker onCreditsLogged={refreshUsage} />}
+                  {/* URL INDEX CHECKER TAB — kept mounted (hidden) so input/results persist across tab switches */}
+                  <div style={{ display: activeTab === 'indexcheck' ? 'block' : 'none' }}>
+                    <IndexChecker onCreditsLogged={refreshUsage} />
+                  </div>
 
                   {/* USAGE TAB */}
                   {activeTab === 'usage' && (
