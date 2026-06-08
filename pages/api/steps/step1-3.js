@@ -5,18 +5,26 @@
 
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Returns a post count (number), 'Not Found' (reachable but no WordPress data),
+// or 'Conn. Error' (unreachable after 3 attempts). Retries only connection
+// failures — a brief blip shouldn't wrongly flag a healthy site.
 async function fetchWPPostCount(domain) {
   let base = domain.toString().trim().toLowerCase();
   if (!base.startsWith('http')) base = 'https://' + base;
   base = base.replace(/\/$/, '');
-  try {
-    const res = await fetch(`${base}/wp-json/wp/v2/posts?per_page=1`, {
-      signal: AbortSignal.timeout(10000),
-    });
-    const total = res.headers.get('x-wp-total') || res.headers.get('X-WP-Total');
-    return total ? parseInt(total) : 'Not Found';
-  } catch {
-    return 'Conn. Error';
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(`${base}/wp-json/wp/v2/posts?per_page=1`, {
+        signal: AbortSignal.timeout(10000),
+      });
+      const total = res.headers.get('x-wp-total') || res.headers.get('X-WP-Total');
+      return (total !== null && total !== undefined) ? parseInt(total) : 'Not Found';
+    } catch {
+      if (attempt < 3) { await sleep(800 * attempt); continue; }
+      return 'Conn. Error';
+    }
   }
 }
 
@@ -48,25 +56,32 @@ export default async function handler(req, res) {
   const results = [];
   for (const domain of domains) {
     if (!domain?.trim()) {
-      results.push({ domain, wpCount: '', serpCount: '', rate: '' });
+      results.push({ domain, wpCount: '', serpCount: '', rate: '', failed: false });
       continue;
     }
 
-    // Step 1: WP count
+    // Step 1: WP count (with retries)
     const wpCount = await fetchWPPostCount(domain);
+    const wp = parseInt(wpCount);
+
+    // Site unreachable / no WP data after 3 tries → mark FAILED. Don't guess any
+    // numbers, and skip the Google search entirely (it would just waste a credit).
+    if (!Number.isFinite(wp)) {
+      results.push({ domain, wpCount: '-', serpCount: '-', rate: '-', failed: true });
+      continue;
+    }
 
     // Step 2: SerpApi count
     const serpCount = await fetchSerpCount(domain);
 
     // Step 3: Calculate rate — capped at 100%
-    const wp = parseInt(wpCount);
     const serp = parseInt(serpCount);
     let rate = 0;
-    if (!isNaN(wp) && wp > 0 && !isNaN(serp)) {
+    if (wp > 0 && Number.isFinite(serp)) {
       rate = Math.min(serp / wp, 1.0);
     }
 
-    results.push({ domain, wpCount, serpCount, rate });
+    results.push({ domain, wpCount: wp, serpCount, rate, failed: false });
   }
 
   return res.status(200).json({ results });

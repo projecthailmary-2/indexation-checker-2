@@ -66,16 +66,32 @@ const S = {
   td: { padding: '9px 12px', borderBottom: `1px solid #f0f0ee`, verticalAlign: 'middle', color: TEXT, fontSize: 13 },
 };
 
-async function apiFetch(path, body) {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Server error at ${path}: ${res.status} ${res.statusText}`);
-  const json = await res.json();
-  if (json.error) throw new Error(json.error);
-  return json;
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Retries a couple of times on a brief network blip / 5xx so a momentary drop in
+// the user's internet doesn't kill the whole run. Real app errors aren't retried.
+// On a persistent network failure, throws an error flagged `.offline`.
+async function apiFetch(path, body, retries = 2) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.status >= 500) throw new Error(`Server ${res.status}`);
+      if (!res.ok) throw new Error(`Server error at ${path}: ${res.status} ${res.statusText}`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      return json;
+    } catch (e) {
+      const isNetwork = e.name === 'TypeError';
+      const isServer5xx = /^Server 5\d\d$/.test(e.message);
+      if (attempt < retries && (isNetwork || isServer5xx)) { await sleep(1500); continue; }
+      if (isNetwork) { const err = new Error('You appear to be offline.'); err.offline = true; throw err; }
+      throw e;
+    }
+  }
 }
 
 function fmt(val, isRate = false) {
@@ -692,16 +708,18 @@ export default function Home() {
   // Download Tracker CSV
   function handleDownloadTracker() {
     const headers = ['Domain','Total Post','Total Indexed','Indexation %','Seq Total','Seq Indexed','Seq Indexation %','VB Total','VB Indexed','VB Indexation %','Combined Rate','Priority Score'];
-    const rows = trackerResults.map(r => [
-      r.domain, r.wpCount ?? '', r.serpCount ?? '',
-      r.rate != null ? `${(r.rate * 100).toFixed(1)}%` : '',
-      r.totalSequoia ?? '', r.indexedSequoia ?? '',
-      r.seqRate != null ? `${(r.seqRate * 100).toFixed(1)}%` : '',
-      r.totalVideoBridge ?? '', r.indexedVideoBridge ?? '',
-      r.vbRate != null ? `${(r.vbRate * 100).toFixed(1)}%` : '',
-      r.combinedRate != null ? `${(r.combinedRate * 100).toFixed(2)}%` : 'N/A',
-      r.priorityScore != null ? r.priorityScore : 'N/A',
-    ]);
+    const rows = trackerResults.map(r => r.failed
+      ? [r.domain, '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-']
+      : [
+        r.domain, r.wpCount ?? '', r.serpCount ?? '',
+        r.rate != null ? `${(r.rate * 100).toFixed(1)}%` : '',
+        r.totalSequoia ?? '', r.indexedSequoia ?? '',
+        r.seqRate != null ? `${(r.seqRate * 100).toFixed(1)}%` : '',
+        r.totalVideoBridge ?? '', r.indexedVideoBridge ?? '',
+        r.vbRate != null ? `${(r.vbRate * 100).toFixed(1)}%` : '',
+        r.combinedRate != null ? `${(r.combinedRate * 100).toFixed(2)}%` : 'N/A',
+        r.priorityScore != null ? r.priorityScore : 'N/A',
+      ]);
     downloadCSV('tracker.csv', toCSV(rows, headers));
   }
 
@@ -774,6 +792,7 @@ export default function Home() {
         indexedSequoia: r.indexedSequoia,
         rate: r.rate,
         seqRate: r.seqRate,
+        failed: r.failed || false,
       }));
       const res = await fetch('/api/tracking/write', {
         method: 'POST',
@@ -815,6 +834,7 @@ export default function Home() {
     let serpApiErrorSet = false;
     let step2Credits = 0;
     let step8Credits = 0;
+    const failedSet = new Set(); // domains unreachable after retries — skipped, no score
 
     try {
       // Steps 1–3
@@ -835,10 +855,11 @@ export default function Home() {
           serpApiErrorSet = true;
           throw new Error('No SerpAPI credits');
         }
-        step2Credits = r13.results.length;
+        r13.results.forEach(r => { if (r.failed) failedSet.add((r.domain || '').toLowerCase().trim()); });
+        step2Credits = r13.results.filter(r => !r.failed).length; // failed sites skip the search
         tracker = tracker.map((row, i) => ({ ...row, ...r13.results[i] }));
         setTrackerResults([...tracker]);
-        addLog(`Steps 1–3 complete — ${r13.results.length} domains processed.`, 'success');
+        addLog(`Steps 1–3 complete — ${r13.results.length} domains${failedSet.size ? ` (${failedSet.size} unreachable, skipped)` : ''}.`, 'success');
         [1,2,3].forEach(s => setStepStatus(s, 'done'));
       }
 
@@ -847,9 +868,16 @@ export default function Home() {
       [4,5,6,7].forEach(s => setStepStatus(s, 'active'));
       setCurrentStep(4);
 
-      const r47 = await apiFetch('/api/steps/step4-7', { domains: parsedDomains });
+      const r47 = await apiFetch('/api/steps/step4-7', { domains: parsedDomains, skipDomains: [...failedSet] });
 
       if (r47.trackerResults && r47.postLinks) {
+        // A site that became unreachable during post-fetch counts as failed too.
+        r47.trackerResults.forEach(r => {
+          const pc = r.postCount;
+          if (r.failed || (pc !== undefined && pc !== '' && !Number.isFinite(parseInt(pc)))) {
+            failedSet.add((r.domain || '').toLowerCase().trim());
+          }
+        });
         tracker = tracker.map((row, i) => ({ ...row, ...r47.trackerResults[i] }));
         links = r47.postLinks;
         setTrackerResults([...tracker]);
@@ -922,13 +950,27 @@ export default function Home() {
         [9,10,11].forEach(s => setStepStatus(s, 'done'));
       }
 
+      // Mark unreachable sites as failed so nothing is computed or shown for them.
+      if (failedSet.size) {
+        tracker = tracker.map(row =>
+          failedSet.has((row.domain || '').toLowerCase().trim()) ? { ...row, failed: true } : row
+        );
+        setTrackerResults([...tracker]);
+        addLog(`${failedSet.size} site(s) were unreachable — left blank (no score).`, 'info');
+      }
+
       addLog('All steps complete! Download your results below.', 'success');
       setRunId(makeRunId());
       setCurrentStep(12);
 
     } catch (err) {
-      addLog(`Error: ${err.message}`, 'error');
-      if (!serpApiErrorSet) setRunError({ message: err.message });
+      if (err.offline) {
+        addLog('Connection lost — run paused. Reconnect and run it again.', 'error');
+        if (!serpApiErrorSet) setRunError({ message: 'You appear to be offline — the run was paused. Reconnect and run it again (it picks up from the least-recently-checked sites).' });
+      } else {
+        addLog(`Error: ${err.message}`, 'error');
+        if (!serpApiErrorSet) setRunError({ message: err.message });
+      }
     } finally {
       if (step2Credits + step8Credits > 0) {
         fetch('/api/usage', {
@@ -1203,23 +1245,30 @@ export default function Home() {
                         </tr>
                       </thead>
                       <tbody>
-                        {trackerResults.map((row, i) => (
-                          <tr key={i}>
+                        {trackerResults.map((row, i) => {
+                          const failed = row.failed;
+                          const dash = content => failed ? '—' : content;
+                          return (
+                          <tr key={i} style={failed ? { opacity: 0.65 } : undefined}>
                             <td style={{ ...S.td, color: '#bbb', fontSize: 11, width: 36 }}>{i+1}</td>
-                            <td style={{ ...S.td, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{row.domain}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.wpCount)}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.serpCount)}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: ACCENT }}>{fmt(row.rate, true)}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.totalSequoia)}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.indexedSequoia)}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#2563eb' }}>{fmt(row.seqRate, true)}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.totalVideoBridge)}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.indexedVideoBridge)}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#c2410c' }}>{fmt(row.vbRate, true)}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#7c3aed' }}>{row.combinedRate != null ? `${(row.combinedRate * 100).toFixed(2)}%` : 'N/A'}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{row.priorityScore != null ? row.priorityScore : 'N/A'}</td>
+                            <td style={{ ...S.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
+                              {row.domain}
+                              {failed && <span style={{ marginLeft: 6, fontSize: 10, color: '#b45309', background: '#fef9c3', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>unreachable</span>}
+                            </td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.wpCount))}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.serpCount))}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: ACCENT }}>{dash(fmt(row.rate, true))}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.totalSequoia))}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.indexedSequoia))}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#2563eb' }}>{dash(fmt(row.seqRate, true))}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.totalVideoBridge))}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.indexedVideoBridge))}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#c2410c' }}>{dash(fmt(row.vbRate, true))}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#7c3aed' }}>{dash(row.combinedRate != null ? `${(row.combinedRate * 100).toFixed(2)}%` : 'N/A')}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{dash(row.priorityScore != null ? row.priorityScore : 'N/A')}</td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}
