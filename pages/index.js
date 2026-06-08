@@ -256,6 +256,15 @@ export default function Home() {
 
   useEffect(() => { refreshUsage(); }, [refreshUsage]);
 
+  // While the Usage tab is open, refresh every 60s so the live total reflects
+  // runs by anyone, without a manual reload.
+  useEffect(() => {
+    if (activeTab !== 'usage') return;
+    refreshUsage();
+    const id = setInterval(refreshUsage, 60000);
+    return () => clearInterval(id);
+  }, [activeTab, refreshUsage]);
+
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
@@ -825,15 +834,21 @@ export default function Home() {
                           {(() => {
                             const last3 = (usageData.history || []).slice(0, 3);
                             const avg3 = last3.length ? Math.round(last3.reduce((a, m) => a + (m.total || 0), 0) / last3.length) : null;
+                            const cur = usageData.current?.total ?? 0;
                             return (
-                              <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 14, marginBottom: 16 }}>
-                                <div style={{ ...S.statCard, display: 'inline-block', minWidth: 240 }}>
+                              <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 14, marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                <div style={{ ...S.statCard, minWidth: 210 }}>
+                                  <div style={S.statVal}>{cur.toLocaleString()}</div>
+                                  <div style={S.statLabel}>This Cycle So Far</div>
+                                  <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>Live — updates as credits are used (auto-refreshes).</div>
+                                </div>
+                                <div style={{ ...S.statCard, minWidth: 210 }}>
                                   <div style={S.statVal}>{avg3 != null ? avg3.toLocaleString() : '—'}</div>
                                   <div style={S.statLabel}>3-Cycle Avg Credits</div>
                                   <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>
                                     {last3.length
                                       ? `Average of the last ${last3.length} completed cycle${last3.length === 1 ? '' : 's'}. Updates each cycle.`
-                                      : 'Available once a cycle has completed.'}
+                                      : 'Your typical spend — shows once a cycle has completed.'}
                                   </div>
                                 </div>
                               </div>
