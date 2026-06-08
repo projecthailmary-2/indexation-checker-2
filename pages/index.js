@@ -788,15 +788,16 @@ export default function Home() {
                       ) : (
                         <>
                           <div style={{ marginBottom: 16 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: TEXT, marginBottom: 8 }}>
-                              {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })} — {usageData.current?.total ?? 0} credits used
+                            <div style={{ fontSize: 13, fontWeight: 600, color: TEXT, marginBottom: 2 }}>
+                              {usageData.current?.periodLabel || 'Current cycle'} — {usageData.current?.total ?? 0} credits used
                             </div>
+                            <div style={{ fontSize: 11, color: MUTED, marginBottom: 8 }}>Billing cycle: 26th → 25th (PH time)</div>
                             {usageData.current?.runs?.length > 0 ? (
                               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                                 <thead>
                                   <tr>
-                                    {['Date', 'Time', 'Step 2 (domains)', 'Step 8 (posts)', 'URL checks', 'Total'].map(h => (
-                                      <th key={h} style={S.th}>{h}</th>
+                                    {['Date', 'Time', 'Step 2 (domains)', 'Step 8 (posts)', 'URL checks', 'Total'].map((h, i) => (
+                                      <th key={h} style={{ ...S.th, textAlign: i >= 2 ? 'center' : 'left' }}>{h}</th>
                                     ))}
                                   </tr>
                                 </thead>
@@ -807,36 +808,54 @@ export default function Home() {
                                       <tr key={i}>
                                         <td style={S.td}>{d.toLocaleDateString()}</td>
                                         <td style={S.td}>{d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                                        <td style={{ ...S.td, textAlign: 'right' }}>{run.step2}</td>
-                                        <td style={{ ...S.td, textAlign: 'right' }}>{run.step8}</td>
-                                        <td style={{ ...S.td, textAlign: 'right' }}>{run.indexCheck ?? 0}</td>
-                                        <td style={{ ...S.td, textAlign: 'right', fontWeight: 600 }}>{run.total}</td>
+                                        <td style={{ ...S.td, textAlign: 'center' }}>{run.step2}</td>
+                                        <td style={{ ...S.td, textAlign: 'center' }}>{run.step8}</td>
+                                        <td style={{ ...S.td, textAlign: 'center' }}>{run.indexCheck ?? 0}</td>
+                                        <td style={{ ...S.td, textAlign: 'center', fontWeight: 600 }}>{run.total}</td>
                                       </tr>
                                     );
                                   })}
                                 </tbody>
                               </table>
                             ) : (
-                              <div style={{ color: MUTED, fontSize: 13 }}>No runs this month yet.</div>
+                              <div style={{ color: MUTED, fontSize: 13 }}>No runs this cycle yet.</div>
                             )}
                           </div>
 
+                          {(() => {
+                            const last3 = (usageData.history || []).slice(0, 3);
+                            const avg3 = last3.length ? Math.round(last3.reduce((a, m) => a + (m.total || 0), 0) / last3.length) : null;
+                            return (
+                              <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 14, marginBottom: 16 }}>
+                                <div style={{ ...S.statCard, display: 'inline-block', minWidth: 240 }}>
+                                  <div style={S.statVal}>{avg3 != null ? avg3.toLocaleString() : '—'}</div>
+                                  <div style={S.statLabel}>3-Cycle Avg Credits</div>
+                                  <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>
+                                    {last3.length
+                                      ? `Average of the last ${last3.length} completed cycle${last3.length === 1 ? '' : 's'}. Updates each cycle.`
+                                      : 'Available once a cycle has completed.'}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
                           {usageData.history?.length > 0 && (
                             <>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: TEXT, marginBottom: 8, borderTop: `1px solid ${BORDER}`, paddingTop: 14 }}>Monthly History</div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: TEXT, marginBottom: 8, borderTop: `1px solid ${BORDER}`, paddingTop: 14 }}>Past Cycles</div>
                               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                                 <thead>
                                   <tr>
-                                    {['Month', 'Total Credits'].map(h => (
-                                      <th key={h} style={S.th}>{h}</th>
+                                    {['Cycle', 'Total Credits'].map((h, i) => (
+                                      <th key={h} style={{ ...S.th, textAlign: i === 1 ? 'center' : 'left' }}>{h}</th>
                                     ))}
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {usageData.history.map((row, i) => (
                                     <tr key={i}>
-                                      <td style={S.td}>{row.month}</td>
-                                      <td style={{ ...S.td, textAlign: 'right', fontWeight: 600 }}>{row.total}</td>
+                                      <td style={S.td}>{row.label || row.month}</td>
+                                      <td style={{ ...S.td, textAlign: 'center', fontWeight: 600 }}>{row.total}</td>
                                     </tr>
                                   ))}
                                 </tbody>
