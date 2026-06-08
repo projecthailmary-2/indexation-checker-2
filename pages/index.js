@@ -1281,6 +1281,32 @@ export default function Home() {
                         <div style={{ color: MUTED, fontSize: 13 }}>Loading…</div>
                       ) : (
                         <>
+                          {(() => {
+                            const last3 = (usageData.history || []).slice(0, 3);
+                            const avg3 = last3.length ? Math.round(last3.reduce((a, m) => a + (m.total || 0), 0) / last3.length) : null;
+                            const cur = usageData.current?.total ?? 0;
+                            return (
+                              <div style={{ marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                <div style={{ ...S.statCard, minWidth: 210 }}>
+                                  <div style={S.statVal}>{cur.toLocaleString()}</div>
+                                  <div style={S.statLabel}>This Cycle So Far</div>
+                                  <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>Live — updates as credits are used (auto-refreshes).</div>
+                                </div>
+                                <div style={{ ...S.statCard, minWidth: 210 }}>
+                                  <div style={S.statVal}>{avg3 != null ? avg3.toLocaleString() : '—'}</div>
+                                  <div style={S.statLabel}>Avg Credits / Cycle</div>
+                                  <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>
+                                    {last3.length === 0
+                                      ? 'Your typical spend — shows once your first cycle completes.'
+                                      : last3.length < 3
+                                        ? `Based on your last ${last3.length} completed cycle${last3.length === 1 ? '' : 's'} so far — builds to a rolling 3-cycle average.`
+                                        : 'Rolling average of your last 3 completed cycles.'}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
                           <div style={{ marginBottom: 16 }}>
                             <div style={{ fontSize: 13, fontWeight: 600, color: TEXT, marginBottom: 2 }}>
                               {usageData.current?.periodLabel || 'Current cycle'} — {usageData.current?.total ?? 0} credits used
@@ -1315,32 +1341,6 @@ export default function Home() {
                               <div style={{ color: MUTED, fontSize: 13 }}>No runs this cycle yet.</div>
                             )}
                           </div>
-
-                          {(() => {
-                            const last3 = (usageData.history || []).slice(0, 3);
-                            const avg3 = last3.length ? Math.round(last3.reduce((a, m) => a + (m.total || 0), 0) / last3.length) : null;
-                            const cur = usageData.current?.total ?? 0;
-                            return (
-                              <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 14, marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                                <div style={{ ...S.statCard, minWidth: 210 }}>
-                                  <div style={S.statVal}>{cur.toLocaleString()}</div>
-                                  <div style={S.statLabel}>This Cycle So Far</div>
-                                  <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>Live — updates as credits are used (auto-refreshes).</div>
-                                </div>
-                                <div style={{ ...S.statCard, minWidth: 210 }}>
-                                  <div style={S.statVal}>{avg3 != null ? avg3.toLocaleString() : '—'}</div>
-                                  <div style={S.statLabel}>Avg Credits / Cycle</div>
-                                  <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>
-                                    {last3.length === 0
-                                      ? 'Your typical spend — shows once your first cycle completes.'
-                                      : last3.length < 3
-                                        ? `Based on your last ${last3.length} completed cycle${last3.length === 1 ? '' : 's'} so far — builds to a rolling 3-cycle average.`
-                                        : 'Rolling average of your last 3 completed cycles.'}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })()}
 
                           {usageData.history?.length > 0 && (
                             <>
