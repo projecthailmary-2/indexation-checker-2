@@ -7,6 +7,8 @@
 // Post Links columns:
 // A: Domain, B: Post Link, C: Pub Date, D: External Links, E: Task Type, F: Index Status
 
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 async function fetchPostLinks(domain) {
   let base = domain.toString().trim().replace(/\/$/, '');
   if (!base.startsWith('http')) base = 'https://' + base;
@@ -15,23 +17,26 @@ async function fetchPostLinks(domain) {
   const before = new Date(); before.setDate(now.getDate() - 24);
   const after = new Date(); after.setMonth(now.getMonth() - 6);
 
-  try {
-    const res = await fetch(
-      `${base}/wp-json/wp/v2/posts?after=${after.toISOString()}&before=${before.toISOString()}&per_page=100`,
-      { signal: AbortSignal.timeout(15000) }
-    );
-    const total = res.headers.get('x-wp-total') || res.headers.get('X-WP-Total');
-    const posts = await res.json();
-    if (!Array.isArray(posts)) return { domain, count: 'Error', links: [] };
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(
+        `${base}/wp-json/wp/v2/posts?after=${after.toISOString()}&before=${before.toISOString()}&per_page=100`,
+        { signal: AbortSignal.timeout(15000) }
+      );
+      const total = res.headers.get('x-wp-total') || res.headers.get('X-WP-Total');
+      const posts = await res.json();
+      if (!Array.isArray(posts)) return { domain, count: 'Error', links: [] };
 
-    const links = posts.map(p => ({
-      url: p.link,
-      pubDate: p.date ? p.date.split('T')[0] : '', // Format: YYYY-MM-DD
-    }));
+      const links = posts.map(p => ({
+        url: p.link,
+        pubDate: p.date ? p.date.split('T')[0] : '', // Format: YYYY-MM-DD
+      }));
 
-    return { domain, count: parseInt(total) || links.length, links };
-  } catch {
-    return { domain, count: 'Error', links: [] };
+      return { domain, count: parseInt(total) || links.length, links };
+    } catch {
+      if (attempt < 3) { await sleep(800 * attempt); continue; }
+      return { domain, count: 'Conn. Error', links: [] };
+    }
   }
 }
 
@@ -80,8 +85,11 @@ async function analyzePost(postUrl, sourceDomain) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
-  const { domains } = req.body;
+  const { domains, skipDomains = [] } = req.body;
   if (!domains?.length) return res.status(400).json({ error: 'domains required' });
+
+  // Sites already marked unreachable in Steps 1-3 — skip them entirely.
+  const skip = new Set((skipDomains || []).map(d => String(d).toLowerCase().trim()));
 
   const trackerResults = [];
   const postLinks = [];
@@ -89,6 +97,10 @@ export default async function handler(req, res) {
   for (const domain of domains) {
     if (!domain?.trim()) {
       trackerResults.push({ domain, postCount: '' });
+      continue;
+    }
+    if (skip.has(domain.toLowerCase().trim())) {
+      trackerResults.push({ domain, postCount: '-', failed: true });
       continue;
     }
 
