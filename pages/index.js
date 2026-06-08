@@ -25,6 +25,18 @@ const STEPS = [
   { id: 11, label: 'Priority Score' },
 ];
 
+// Top-level sections and the sub-tabs each one shows.
+const SECTIONS = [
+  { id: 'site', label: 'Site Indexation Checker' },
+  { id: 'url', label: 'URL Index Checker' },
+  { id: 'usage', label: 'Usage' },
+];
+const SECTION_TABS = {
+  site: ['tracker', 'postlinks', 'salvage', 'log'],
+  url: ['indexcheck'],
+  usage: ['usage'],
+};
+
 const S = {
   app: { display: 'flex', flexDirection: 'column', minHeight: '100vh', background: BG_PAGE },
   header: { background: BG_CARD, borderBottom: `2.5px solid ${ACCENT}`, padding: '0 28px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' },
@@ -243,7 +255,8 @@ export default function Home() {
   const [currentStep, setCurrentStep] = useState(0);
   const [stepStatuses, setStepStatuses] = useState({});
   const [logs, setLogs] = useState([]);
-  const [activeTab, setActiveTab] = useState('usage');
+  const [activeTab, setActiveTab] = useState('tracker');
+  const [section, setSection] = useState('site');
   const [trackerResults, setTrackerResults] = useState([]);
   const [postLinks, setPostLinks] = useState([]);
   const [runError, setRunError] = useState(null);
@@ -259,11 +272,11 @@ export default function Home() {
   // While the Usage tab is open, refresh every 60s so the live total reflects
   // runs by anyone, without a manual reload.
   useEffect(() => {
-    if (activeTab !== 'usage') return;
+    if (section !== 'usage') return;
     refreshUsage();
     const id = setInterval(refreshUsage, 60000);
     return () => clearInterval(id);
-  }, [activeTab, refreshUsage]);
+  }, [section, refreshUsage]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -511,7 +524,7 @@ export default function Home() {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {isDone && (
+            {section === 'site' && isDone && (
               <>
                 <button style={S.btnOutline} onClick={handleDownloadTracker}>↓ Tracker CSV</button>
                 <button style={S.btnOutline} onClick={handleDownloadPostLinks}>↓ Post Links CSV</button>
@@ -527,11 +540,23 @@ export default function Home() {
           </div>
         </header>
 
-        {/* BODY */}
-        <div style={{ ...S.body, gridTemplateColumns: activeTab === 'indexcheck' ? '1fr' : '268px 1fr' }}>
+        {/* PRIMARY NAV — top-level tools */}
+        <nav style={{ display: 'flex', gap: 2, padding: '0 22px', background: BG_CARD, borderBottom: `1px solid ${BORDER}`, position: 'sticky', top: 56, zIndex: 90 }}>
+          {SECTIONS.map(s => (
+            <button key={s.id} onClick={() => { setSection(s.id); setActiveTab(SECTION_TABS[s.id][0]); }} style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              borderBottom: section === s.id ? `2.5px solid ${ACCENT}` : '2.5px solid transparent',
+              color: section === s.id ? TEXT : MUTED, fontWeight: section === s.id ? 700 : 500,
+              fontSize: 13, padding: '12px 16px', marginBottom: -1, transition: 'all 0.15s',
+            }}>{s.label}</button>
+          ))}
+        </nav>
 
-          {/* SIDEBAR — hidden for the standalone URL Index Checker (it has its own input) */}
-          {activeTab !== 'indexcheck' && (
+        {/* BODY */}
+        <div style={{ ...S.body, gridTemplateColumns: section === 'site' ? '268px 1fr' : '1fr' }}>
+
+          {/* SIDEBAR — only for the Site Indexation Checker (others have their own / no input) */}
+          {section === 'site' && (
           <aside style={S.sidebar}>
 
             <div style={S.card}>
@@ -630,7 +655,7 @@ export default function Home() {
           {/* MAIN */}
           <main style={S.mainContent}>
 
-            {trackerResults.length > 0 && (
+            {section === 'site' && trackerResults.length > 0 && (
               <div style={S.statsGrid}>
                 {[
                   { label: 'Domains', value: trackerResults.length },
@@ -646,7 +671,7 @@ export default function Home() {
               </div>
             )}
 
-            {runError && (
+            {section === 'site' && runError && (
               <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                 <span style={{ color: '#dc2626', fontSize: 18, flexShrink: 0, lineHeight: 1 }}>&#9888;</span>
                 <div style={{ flex: 1 }}>
@@ -660,13 +685,12 @@ export default function Home() {
             )}
 
             <div style={S.card}>
+                {section === 'site' && (
                 <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, background: BG_HEADER, padding: '0 14px' }}>
                   {[
-                    { id: 'tracker', label: 'Tracker', count: trackerResults.length },
+                    { id: 'tracker', label: 'Results', count: trackerResults.length },
                     { id: 'postlinks', label: 'Post Links', count: postLinks.length },
                     { id: 'salvage', label: 'Salvage Sequoias', count: postLinks.filter(l => l.taskType === 'Sequoia' && l.indexStatus === 'Unindexed').length },
-                    { id: 'indexcheck', label: 'URL Index Checker', count: null },
-                    { id: 'usage', label: 'Usage', count: usageData?.current?.runs?.length ?? 0 },
                     { id: 'log', label: 'Log', count: logs.filter(l => l.type === 'error').length || null },
                   ].map(tab => (
                     <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
@@ -681,8 +705,9 @@ export default function Home() {
                     </button>
                   ))}
                 </div>
+                )}
 
-                <div style={activeTab === 'indexcheck' ? {} : S.tableWrap}>
+                <div style={section === 'site' ? S.tableWrap : {}}>
 
                   {/* TRACKER TABLE */}
                   {activeTab === 'tracker' && (
