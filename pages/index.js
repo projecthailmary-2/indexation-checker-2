@@ -1329,11 +1329,13 @@ export default function Home() {
                                 </div>
                                 <div style={{ ...S.statCard, minWidth: 210 }}>
                                   <div style={S.statVal}>{avg3 != null ? avg3.toLocaleString() : '—'}</div>
-                                  <div style={S.statLabel}>3-Cycle Avg Credits</div>
+                                  <div style={S.statLabel}>Avg Credits / Cycle</div>
                                   <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>
-                                    {last3.length
-                                      ? `Average of the last ${last3.length} completed cycle${last3.length === 1 ? '' : 's'}. Updates each cycle.`
-                                      : 'Your typical spend — shows once a cycle has completed.'}
+                                    {last3.length === 0
+                                      ? 'Your typical spend — shows once your first cycle completes.'
+                                      : last3.length < 3
+                                        ? `Based on your last ${last3.length} completed cycle${last3.length === 1 ? '' : 's'} so far — builds to a rolling 3-cycle average.`
+                                        : 'Rolling average of your last 3 completed cycles.'}
                                   </div>
                                 </div>
                               </div>
