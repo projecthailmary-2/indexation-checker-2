@@ -1,15 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Head from 'next/head';
 
-const ACCENT = '#95A940';
-const ACCENT_HOVER = '#7d8f35';
-const ACCENT_LIGHT = '#f0f4e4';
-const BORDER = '#e2e4da';
-const BG_PAGE = '#f0f0ec';
-const BG_CARD = '#ffffff';
-const BG_HEADER = '#f7f7f4';
-const TEXT = '#1a1a1a';
-const MUTED = '#6b7068';
+// Colors live as CSS variables (see styles/globals.css) so the whole app can
+// switch between the light and dark palettes from one place.
+const ACCENT = 'var(--accent)';
+const ACCENT_HOVER = 'var(--accent-hover)';
+const ACCENT_LIGHT = 'var(--accent-light)';
+const BORDER = 'var(--border)';
+const BG_PAGE = 'var(--bg-page)';
+const BG_CARD = 'var(--bg-card)';
+const BG_HEADER = 'var(--bg-header)';
+const TEXT = 'var(--text)';
+const MUTED = 'var(--muted)';
 
 const STEPS = [
   { id: 1, label: 'Published Post Counts' },
@@ -49,10 +51,10 @@ const S = {
   cardHeader: { padding: '9px 14px', borderBottom: `1px solid ${BORDER}`, background: BG_HEADER, display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
   cardHeaderLabel: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED },
   btnPrimary: { background: ACCENT, color: '#fff', fontWeight: 600, padding: '11px 18px', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  btnPrimaryDisabled: { background: '#c8d9a0', color: '#fff', fontWeight: 600, padding: '11px 18px', border: 'none', borderRadius: 6, cursor: 'not-allowed', fontSize: 14, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  btnOutline: { background: '#fff', color: ACCENT, fontWeight: 500, padding: '7px 14px', border: `1.5px solid ${ACCENT}`, borderRadius: 6, cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' },
+  btnPrimaryDisabled: { background: 'var(--accent-disabled)', color: '#fff', fontWeight: 600, padding: '11px 18px', border: 'none', borderRadius: 6, cursor: 'not-allowed', fontSize: 14, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  btnOutline: { background: BG_CARD, color: ACCENT, fontWeight: 500, padding: '7px 14px', border: `1.5px solid ${ACCENT}`, borderRadius: 6, cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' },
   btnGhost: { background: 'transparent', color: MUTED, fontWeight: 500, padding: '5px 10px', border: `1px solid ${BORDER}`, borderRadius: 5, cursor: 'pointer', fontSize: 11 },
-  badge: { fontSize: 11, fontWeight: 600, background: ACCENT_LIGHT, color: '#4a5520', padding: '2px 8px', borderRadius: 99 },
+  badge: { fontSize: 11, fontWeight: 600, background: ACCENT_LIGHT, color: 'var(--accent-strong)', padding: '2px 8px', borderRadius: 99 },
   textarea: { width: '100%', height: 170, background: BG_HEADER, border: `1px solid ${BORDER}`, borderRadius: 6, color: TEXT, fontFamily: "'Courier New', monospace", fontSize: 12, padding: '10px 12px', resize: 'vertical', outline: 'none', lineHeight: 1.8 },
   progressWrap: { height: 5, background: BORDER, borderRadius: 99, overflow: 'hidden' },
   progressFill: { height: '100%', background: ACCENT, borderRadius: 99, transition: 'width 0.4s ease' },
@@ -63,7 +65,7 @@ const S = {
   logWrap: { background: '#1a1a1a', borderRadius: 6, fontFamily: "'Courier New', monospace", fontSize: 12, padding: '12px 14px', height: 200, overflowY: 'auto', lineHeight: 1.9 },
   tableWrap: { overflowX: 'auto', maxHeight: 400, overflowY: 'auto' },
   th: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, padding: '9px 12px', textAlign: 'left', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap', position: 'sticky', top: 0, background: BG_HEADER, zIndex: 10 },
-  td: { padding: '9px 12px', borderBottom: `1px solid #f0f0ee`, verticalAlign: 'middle', color: TEXT, fontSize: 13 },
+  td: { padding: '9px 12px', borderBottom: `1px solid var(--border-subtle)`, verticalAlign: 'middle', color: TEXT, fontSize: 13 },
 };
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -101,18 +103,18 @@ function fmt(val, isRate = false) {
 }
 
 function Tag({ value }) {
-  if (!value) return <span style={{ color: '#aaa' }}>—</span>;
+  if (!value) return <span style={{ color: 'var(--muted-2)' }}>—</span>;
   const styles = {
-    'Indexed': { background: '#eaf3de', color: '#27500a' },
-    'Unindexed': { background: '#fcebeb', color: '#791f1f' },
-    'Skip': { background: '#f5f5f4', color: '#888' },
-    'Sequoia': { background: '#eff6ff', color: '#1d4ed8' },
-    'Video Bridge': { background: '#faeeda', color: '#633806' },
-    'Others': { background: '#f5f5f4', color: '#888' },
-    'Invalid Key': { background: '#fcebeb', color: '#791f1f' },
-    'No Credits': { background: '#fcebeb', color: '#791f1f' },
-    'Conn. Error': { background: '#fef9c3', color: '#854d0e' },
-    'Error': { background: '#fef9c3', color: '#854d0e' },
+    'Indexed': { background: 'var(--ok-chip-bg)', color: 'var(--ok-chip-text)' },
+    'Unindexed': { background: 'var(--bad-chip-bg)', color: 'var(--bad-chip-text)' },
+    'Skip': { background: 'var(--neutral-chip-bg)', color: 'var(--neutral-chip-text)' },
+    'Sequoia': { background: 'var(--seq-chip-bg)', color: 'var(--seq-chip-text)' },
+    'Video Bridge': { background: 'var(--vb-chip-bg)', color: 'var(--vb-chip-text)' },
+    'Others': { background: 'var(--neutral-chip-bg)', color: 'var(--neutral-chip-text)' },
+    'Invalid Key': { background: 'var(--bad-chip-bg)', color: 'var(--bad-chip-text)' },
+    'No Credits': { background: 'var(--bad-chip-bg)', color: 'var(--bad-chip-text)' },
+    'Conn. Error': { background: 'var(--warn-bg)', color: 'var(--warn-text)' },
+    'Error': { background: 'var(--warn-bg)', color: 'var(--warn-text)' },
   };
   const s = styles[value] || styles['Skip'];
   return <span style={{ ...s, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, display: 'inline-block' }}>{value}</span>;
@@ -139,7 +141,7 @@ function makeRunId() {
   return `r-${stamp}-${rand}`;
 }
 
-const selStyle = { background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '7px 10px', fontSize: 12, color: TEXT, outline: 'none', minWidth: 130 };
+const selStyle = { background: 'var(--input-bg)', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '7px 10px', fontSize: 12, color: TEXT, outline: 'none', minWidth: 130 };
 const filterLabel = { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, marginBottom: 4, display: 'block' };
 
 // --- Dashboard helpers ---------------------------------------------------
@@ -267,9 +269,9 @@ function Dashboard({ active }) {
   const resetFilters = () => { setSelectedSites([]); setCategory(''); setStatus(''); setDateFrom(''); setDateTo(''); };
 
   function changeCell(v) {
-    if (v == null) return <span style={{ color: '#aaa' }}>—</span>;
+    if (v == null) return <span style={{ color: 'var(--muted-2)' }}>—</span>;
     const flat = Math.abs(v) < 0.05;
-    const color = flat ? MUTED : v > 0 ? '#15803d' : '#dc2626';
+    const color = flat ? MUTED : v > 0 ? 'var(--ok-strong)' : 'var(--err-strong)';
     const arrow = flat ? '→' : v > 0 ? '▲' : '▼';
     return <span style={{ color, fontWeight: 600 }}>{arrow} {v > 0 ? '+' : ''}{v.toFixed(1)} pts</span>;
   }
@@ -281,7 +283,7 @@ function Dashboard({ active }) {
         {selectedSites.length === 0 ? 'All sites' : `${selectedSites.length} selected`} ▾
       </button>
       {siteMenuOpen && (
-        <div style={{ position: 'absolute', zIndex: 50, top: '100%', left: 0, marginTop: 4, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 240, maxHeight: 280, overflowY: 'auto', padding: 8 }}>
+        <div style={{ position: 'absolute', zIndex: 50, top: '100%', left: 0, marginTop: 4, background: BG_CARD, border: `1px solid ${BORDER}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 240, maxHeight: 280, overflowY: 'auto', padding: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <button style={S.btnGhost} onClick={() => setSelectedSites([])}>Clear (all)</button>
             <button style={S.btnGhost} onClick={() => setSiteMenuOpen(false)}>Done</button>
@@ -312,7 +314,7 @@ function Dashboard({ active }) {
         <div style={{ display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 6, overflow: 'hidden' }}>
           {[['sites', 'Sites'], ['compare', 'Compare periods'], ['posts', 'Posts']].map(([m, lbl]) => (
             <button key={m} onClick={() => setMode(m)} style={{
-              background: mode === m ? ACCENT : '#fff', color: mode === m ? '#fff' : MUTED,
+              background: mode === m ? ACCENT : BG_CARD, color: mode === m ? '#fff' : MUTED,
               border: 'none', padding: '8px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
             }}>{lbl}</button>
           ))}
@@ -324,7 +326,7 @@ function Dashboard({ active }) {
       </div>
 
       {error && (
-        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '10px 14px', color: '#7f1d1d', fontSize: 12, marginBottom: 12 }}>{error}</div>
+        <div style={{ background: 'var(--err-bg)', border: '1px solid var(--err-border)', borderRadius: 8, padding: '10px 14px', color: 'var(--err-text)', fontSize: 12, marginBottom: 12 }}>{error}</div>
       )}
 
       {/* ============ SITES MODE ============ */}
@@ -338,8 +340,8 @@ function Dashboard({ active }) {
           <div style={{ display: 'flex', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
             {card('Sites', siteRows.length)}
             {card('Library indexation rate', fmtRate(libRate), ACCENT)}
-            {card('Highest', siteRateVals.length ? fmtRate(Math.max(...siteRateVals)) : '—', '#15803d')}
-            {card('Lowest', siteRateVals.length ? fmtRate(Math.min(...siteRateVals)) : '—', '#dc2626')}
+            {card('Highest', siteRateVals.length ? fmtRate(Math.max(...siteRateVals)) : '—', 'var(--ok-strong)')}
+            {card('Lowest', siteRateVals.length ? fmtRate(Math.min(...siteRateVals)) : '—', 'var(--err-strong)')}
           </div>
           <div style={{ fontSize: 11, color: MUTED, marginBottom: 12 }}>
             Each site shown once, using its most recent check{(dateFrom || dateTo) ? ' in the selected dates' : ''}. Library rate = average across sites.
@@ -362,8 +364,8 @@ function Dashboard({ active }) {
                       <td style={{ ...S.td, textAlign: 'right' }}>{r['Total Post'] || '—'}</td>
                       <td style={{ ...S.td, textAlign: 'right' }}>{r['Total Indexed'] || '—'}</td>
                       <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, color: ACCENT }}>{r['Indexation %'] || '—'}</td>
-                      <td style={{ ...S.td, textAlign: 'right', color: '#2563eb' }}>{r['Seq Indexation %'] || '—'}</td>
-                      <td style={{ ...S.td, textAlign: 'right', color: '#c2410c' }}>{r['VB Indexation %'] || '—'}</td>
+                      <td style={{ ...S.td, textAlign: 'right', color: 'var(--link)' }}>{r['Seq Indexation %'] || '—'}</td>
+                      <td style={{ ...S.td, textAlign: 'right', color: 'var(--vb)' }}>{r['VB Indexation %'] || '—'}</td>
                       <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{r['Priority Score'] || '—'}</td>
                     </tr>
                   ))}
@@ -401,8 +403,8 @@ function Dashboard({ active }) {
             {card(`Earlier (${ranges.aStart || '…'} → ${ranges.aEnd || '…'})`, fmtRate(libA))}
             {card(`Recent (${ranges.bStart || '…'} → ${ranges.bEnd || '…'})`, fmtRate(libB), ACCENT)}
             {card('Library change', (libA != null && libB != null) ? changeCell(libB - libA) : '—')}
-            {card('Improved', improved, '#15803d')}
-            {card('Declined', declined, '#dc2626')}
+            {card('Improved', improved, 'var(--ok-strong)')}
+            {card('Declined', declined, 'var(--err-strong)')}
           </div>
           <div style={{ fontSize: 11, color: MUTED, marginBottom: 12 }}>
             “pts” = change in percentage points. Each site uses its most recent check within each period; sorted by biggest improvement.
@@ -457,8 +459,8 @@ function Dashboard({ active }) {
           </div>
           <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
             {card('Posts', postRows.length.toLocaleString())}
-            {card('Indexed', postRows.filter(r => r['Index Status'] === 'Indexed').length.toLocaleString(), '#15803d')}
-            {card('Unindexed', postRows.filter(r => r['Index Status'] === 'Unindexed').length.toLocaleString(), '#dc2626')}
+            {card('Indexed', postRows.filter(r => r['Index Status'] === 'Indexed').length.toLocaleString(), 'var(--ok-strong)')}
+            {card('Unindexed', postRows.filter(r => r['Index Status'] === 'Unindexed').length.toLocaleString(), 'var(--err-strong)')}
           </div>
           {loading && !loaded ? (
             <div style={{ padding: '40px 0', textAlign: 'center', color: MUTED, fontSize: 13 }}>Loading saved data…</div>
@@ -476,7 +478,7 @@ function Dashboard({ active }) {
                       <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{(r['Run Date'] || '').slice(0, 10)}</td>
                       <td style={{ ...S.td, fontSize: 12, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r['Domain']}</td>
                       <td style={{ ...S.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <a href={r['Post Link']} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 12 }}>{r['Post Link']}</a>
+                        <a href={r['Post Link']} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--link)', fontSize: 12 }}>{r['Post Link']}</a>
                       </td>
                       <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{r['Pub Date'] || '—'}</td>
                       <td style={S.td}><Tag value={r['Task Type']} /></td>
@@ -572,7 +574,7 @@ function IndexChecker({ onCreditsLogged }) {
             disabled={running}
             placeholder={'https://example.com/post-1\nexample.com/post-2'}
           />
-          <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 6 }}>
             {urls.length} URL{urls.length === 1 ? '' : 's'} · checked with Google’s site: operator · up to 3 tries each.
           </div>
           <button
@@ -582,7 +584,7 @@ function IndexChecker({ onCreditsLogged }) {
             {running ? `Checking ${progress.done}/${progress.total}…` : '▶ Check Indexation'}
           </button>
           {error && (
-            <div style={{ marginTop: 8, fontSize: 12, background: '#fef2f2', border: '1px solid #fca5a5', color: '#7f1d1d', borderRadius: 6, padding: '8px 10px' }}>{error}</div>
+            <div style={{ marginTop: 8, fontSize: 12, background: 'var(--err-bg)', border: '1px solid var(--err-border)', color: 'var(--err-text)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>
           )}
         </div>
 
@@ -590,9 +592,9 @@ function IndexChecker({ onCreditsLogged }) {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 8 }}>
-              <span style={{ ...S.badge, background: '#eaf3de', color: '#27500a' }}>Indexed {counts.indexed}</span>
-              <span style={{ ...S.badge, background: '#fcebeb', color: '#791f1f' }}>Unindexed {counts.unindexed}</span>
-              {counts.errors > 0 && <span style={{ ...S.badge, background: '#fef9c3', color: '#854d0e' }}>Errors {counts.errors}</span>}
+              <span style={{ ...S.badge, background: 'var(--ok-chip-bg)', color: 'var(--ok-chip-text)' }}>Indexed {counts.indexed}</span>
+              <span style={{ ...S.badge, background: 'var(--bad-chip-bg)', color: 'var(--bad-chip-text)' }}>Unindexed {counts.unindexed}</span>
+              {counts.errors > 0 && <span style={{ ...S.badge, background: 'var(--warn-bg)', color: 'var(--warn-text)' }}>Errors {counts.errors}</span>}
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
               <button style={{ ...S.btnOutline, opacity: results.length ? 1 : 0.5 }} onClick={copyResults} disabled={!results.length}>{copied ? '✓ Copied' : '⧉ Copy results'}</button>
@@ -611,9 +613,9 @@ function IndexChecker({ onCreditsLogged }) {
                 <tbody>
                   {results.map((r, i) => (
                     <tr key={i}>
-                      <td style={{ ...S.td, color: '#bbb', fontSize: 11, width: 36 }}>{i + 1}</td>
+                      <td style={{ ...S.td, color: 'var(--muted-3)', fontSize: 11, width: 36 }}>{i + 1}</td>
                       <td style={{ ...S.td, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <a href={r.url.startsWith('http') ? r.url : `https://${r.url}`} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 12 }}>{r.url}</a>
+                        <a href={r.url.startsWith('http') ? r.url : `https://${r.url}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--link)', fontSize: 12 }}>{r.url}</a>
                       </td>
                       <td style={S.td}><Tag value={r.status} /></td>
                       <td style={{ ...S.td, color: MUTED, fontSize: 12 }}>{r.detail}{r.attempts > 1 ? ` (${r.attempts} tries)` : ''}</td>
@@ -648,7 +650,22 @@ export default function Home() {
   const [loadingSites, setLoadingSites] = useState(false);
   const [loadSitesMsg, setLoadSitesMsg] = useState(null); // { type, text }
   const [siteLimit, setSiteLimit] = useState(50);
+  const [theme, setTheme] = useState('light');
   const logRef = useRef(null);
+
+  // Pick up the theme that _document already applied (saved choice or system),
+  // then let the toggle flip it and remember the choice for next time.
+  useEffect(() => {
+    setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+  }, []);
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('theme', next); } catch (e) { /* private mode */ }
+      return next;
+    });
+  }, []);
 
   const refreshUsage = useCallback(() => {
     fetch('/api/usage').then(r => r.json()).then(setUsageData).catch(() => {});
@@ -688,21 +705,21 @@ export default function Home() {
 
   function stepDotStyle(status) {
     if (status === 'done') return { width: 8, height: 8, borderRadius: '50%', background: ACCENT, border: `1.5px solid ${ACCENT}`, flexShrink: 0 };
-    if (status === 'active') return { width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', border: '1.5px solid #f59e0b', flexShrink: 0 };
-    return { width: 8, height: 8, borderRadius: '50%', background: BORDER, border: `1.5px solid #ccc`, flexShrink: 0 };
+    if (status === 'active') return { width: 8, height: 8, borderRadius: '50%', background: 'var(--warn-strong)', border: '1.5px solid var(--warn-strong)', flexShrink: 0 };
+    return { width: 8, height: 8, borderRadius: '50%', background: BORDER, border: `1.5px solid var(--border)`, flexShrink: 0 };
   }
 
   function stepLabelStyle(status) {
-    if (status === 'done') return { fontSize: 12, color: '#4a5520' };
-    if (status === 'active') return { fontSize: 12, color: '#b45309', fontWeight: 500 };
+    if (status === 'done') return { fontSize: 12, color: 'var(--accent-strong)' };
+    if (status === 'active') return { fontSize: 12, color: 'var(--warn-text)', fontWeight: 500 };
     return { fontSize: 12, color: MUTED };
   }
 
   function logColor(type) {
-    if (type === 'success') return '#95A940';
+    if (type === 'success') return 'var(--accent)';
     if (type === 'error') return '#f87171';
     if (type === 'step') return '#7dd3fc';
-    return '#aaa';
+    return 'var(--muted-2)';
   }
 
   // Download Tracker CSV
@@ -1005,7 +1022,7 @@ export default function Home() {
             {section === 'site' && isDone && (
               <>
                 <button
-                  style={savingSheet || sheetSaved ? { ...S.btnOutline, opacity: 0.6, cursor: 'default', background: sheetSaved ? ACCENT_LIGHT : '#fff' } : { ...S.btnPrimary, width: 'auto', padding: '7px 14px', fontSize: 12 }}
+                  style={savingSheet || sheetSaved ? { ...S.btnOutline, opacity: 0.6, cursor: 'default', background: sheetSaved ? ACCENT_LIGHT : BG_CARD } : { ...S.btnPrimary, width: 'auto', padding: '7px 14px', fontSize: 12 }}
                   onClick={handleSaveToSheet}
                   disabled={savingSheet || sheetSaved}
                 >
@@ -1013,9 +1030,17 @@ export default function Home() {
                 </button>
                 <button style={S.btnOutline} onClick={handleDownloadTracker}>↓ Tracker CSV</button>
                 <button style={S.btnOutline} onClick={handleDownloadPostLinks}>↓ Post Links CSV</button>
-                <button style={{ ...S.btnOutline, borderColor: '#dc2626', color: '#dc2626' }} onClick={handleDownloadSalvage}>↓ Salvage Sequoias</button>
+                <button style={{ ...S.btnOutline, borderColor: 'var(--err-strong)', color: 'var(--err-strong)' }} onClick={handleDownloadSalvage}>↓ Salvage Sequoias</button>
               </>
             )}
+            <button
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              style={{ ...S.btnGhost, fontSize: 14, lineHeight: 1, padding: '5px 9px' }}
+            >
+              {theme === 'dark' ? '☀' : '☾'}
+            </button>
             <button
               onClick={async () => { await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ logout: true }) }); window.location.href = '/login'; }}
               style={{ ...S.btnGhost, fontSize: 11 }}
@@ -1057,7 +1082,7 @@ export default function Home() {
                   disabled={running}
                   placeholder={'example.com\nhttps://site2.com\nwww.site3.com'}
                 />
-                <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>One domain per line. http:// optional.</div>
+                <div style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 6 }}>One domain per line. http:// optional.</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
                   <label style={{ fontSize: 11, color: MUTED, whiteSpace: 'nowrap' }}>Sites to check</label>
                   <input
@@ -1066,7 +1091,7 @@ export default function Home() {
                     disabled={loadingSites || running}
                     style={{ width: 70, ...selStyle, minWidth: 0, padding: '6px 8px' }}
                   />
-                  <span style={{ fontSize: 10, color: '#aaa' }}>blank = all</span>
+                  <span style={{ fontSize: 10, color: 'var(--muted-2)' }}>blank = all</span>
                 </div>
                 <button
                   style={{ ...S.btnOutline, width: '100%', textAlign: 'center', marginTop: 8, opacity: loadingSites || running ? 0.6 : 1 }}
@@ -1078,13 +1103,13 @@ export default function Home() {
                 {loadSitesMsg && (
                   <div style={{
                     fontSize: 11, padding: '6px 8px', borderRadius: 4, marginTop: 8,
-                    background: loadSitesMsg.type === 'error' ? '#fef2f2' : ACCENT_LIGHT,
-                    color: loadSitesMsg.type === 'error' ? '#7f1d1d' : '#4a5520',
-                    border: `1px solid ${loadSitesMsg.type === 'error' ? '#fca5a5' : '#cdd9a8'}`,
+                    background: loadSitesMsg.type === 'error' ? 'var(--err-bg)' : ACCENT_LIGHT,
+                    color: loadSitesMsg.type === 'error' ? 'var(--err-text)' : 'var(--accent-strong)',
+                    border: `1px solid ${loadSitesMsg.type === 'error' ? 'var(--err-border)' : 'var(--accent-light-border)'}`,
                   }}>{loadSitesMsg.text}</div>
                 )}
                 {invalidDomains.length > 0 && (
-                  <div style={{ fontSize: 11, color: '#b45309', marginTop: 6, background: '#fef9c3', padding: '6px 8px', borderRadius: 4, border: '1px solid #fde68a' }}>
+                  <div style={{ fontSize: 11, color: 'var(--warn-text)', marginTop: 6, background: 'var(--warn-bg)', padding: '6px 8px', borderRadius: 4, border: '1px solid var(--warn-border)' }}>
                     Invalid: {invalidDomains.join(', ')}
                   </div>
                 )}
@@ -1098,7 +1123,7 @@ export default function Home() {
               </div>
               <div style={{ padding: '10px 14px' }}>
                 {!usageData ? (
-                  <div style={{ fontSize: 12, color: '#aaa' }}>Loading…</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted-2)' }}>Loading…</div>
                 ) : (
                   <>
                     <div style={{ fontSize: 26, fontWeight: 700, color: TEXT, lineHeight: 1 }}>{usageData.current?.total ?? 0}</div>
@@ -1137,11 +1162,11 @@ export default function Home() {
                     <div style={{ ...S.progressFill, width: `${isDone ? 100 : progress}%` }} />
                   </div>
                   {STEPS.map(step => (
-                    <div key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 0', borderBottom: `1px solid #f0f0ee` }}>
+                    <div key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 0', borderBottom: `1px solid var(--border-subtle)` }}>
                       <div style={stepDotStyle(stepStatuses[step.id])} />
                       <span style={stepLabelStyle(stepStatuses[step.id])}>
                         {step.id}. {step.label}
-                        {step.note && <span style={{ color: '#bbb', marginLeft: 4, fontSize: 10 }}>({step.note})</span>}
+                        {step.note && <span style={{ color: 'var(--muted-3)', marginLeft: 4, fontSize: 10 }}>({step.note})</span>}
                       </span>
                     </div>
                   ))}
@@ -1163,14 +1188,14 @@ export default function Home() {
                   {sheetMsg && (
                     <div style={{
                       fontSize: 11, padding: '6px 8px', borderRadius: 4,
-                      background: sheetMsg.type === 'error' ? '#fef2f2' : sheetMsg.type === 'success' ? ACCENT_LIGHT : '#f5f5f4',
-                      color: sheetMsg.type === 'error' ? '#7f1d1d' : sheetMsg.type === 'success' ? '#4a5520' : MUTED,
-                      border: `1px solid ${sheetMsg.type === 'error' ? '#fca5a5' : sheetMsg.type === 'success' ? '#cdd9a8' : BORDER}`,
+                      background: sheetMsg.type === 'error' ? 'var(--err-bg)' : sheetMsg.type === 'success' ? ACCENT_LIGHT : 'var(--neutral-chip-bg)',
+                      color: sheetMsg.type === 'error' ? 'var(--err-text)' : sheetMsg.type === 'success' ? 'var(--accent-strong)' : MUTED,
+                      border: `1px solid ${sheetMsg.type === 'error' ? 'var(--err-border)' : sheetMsg.type === 'success' ? 'var(--accent-light-border)' : BORDER}`,
                     }}>{sheetMsg.text}</div>
                   )}
                   <button style={{ ...S.btnOutline, width: '100%', textAlign: 'center' }} onClick={handleDownloadTracker}>↓ Tracker CSV</button>
                   <button style={{ ...S.btnGhost, width: '100%', textAlign: 'center' }} onClick={handleDownloadPostLinks}>↓ Post Links CSV</button>
-                  <button style={{ ...S.btnGhost, width: '100%', textAlign: 'center', borderColor: '#dc2626', color: '#dc2626' }} onClick={handleDownloadSalvage}>↓ Salvage Sequoias CSV</button>
+                  <button style={{ ...S.btnGhost, width: '100%', textAlign: 'center', borderColor: 'var(--err-strong)', color: 'var(--err-strong)' }} onClick={handleDownloadSalvage}>↓ Salvage Sequoias CSV</button>
                 </div>
               </div>
             )}
@@ -1197,15 +1222,15 @@ export default function Home() {
             )}
 
             {section === 'site' && runError && (
-              <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                <span style={{ color: '#dc2626', fontSize: 18, flexShrink: 0, lineHeight: 1 }}>&#9888;</span>
+              <div style={{ background: 'var(--err-bg)', border: '1px solid var(--err-border)', borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <span style={{ color: 'var(--err-strong)', fontSize: 18, flexShrink: 0, lineHeight: 1 }}>&#9888;</span>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, color: '#dc2626', fontSize: 13 }}>
+                  <div style={{ fontWeight: 600, color: 'var(--err-strong)', fontSize: 13 }}>
                     Run stopped{runError.step ? ` — Step ${runError.step} failed` : ''}
                   </div>
-                  <div style={{ fontSize: 12, color: '#7f1d1d', marginTop: 2 }}>{runError.message}</div>
+                  <div style={{ fontSize: 12, color: 'var(--err-text)', marginTop: 2 }}>{runError.message}</div>
                 </div>
-                <button onClick={() => setRunError(null)} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 20, padding: 0, lineHeight: 1 }}>&times;</button>
+                <button onClick={() => setRunError(null)} style={{ background: 'none', border: 'none', color: 'var(--err-strong)', cursor: 'pointer', fontSize: 20, padding: 0, lineHeight: 1 }}>&times;</button>
               </div>
             )}
 
@@ -1220,8 +1245,8 @@ export default function Home() {
                   ].map(tab => (
                     <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
                       background: 'none', border: 'none', cursor: 'pointer',
-                      borderBottom: activeTab === tab.id ? `2px solid ${tab.id === 'salvage' ? '#dc2626' : ACCENT}` : '2px solid transparent',
-                      color: activeTab === tab.id ? (tab.id === 'salvage' ? '#dc2626' : ACCENT) : MUTED,
+                      borderBottom: activeTab === tab.id ? `2px solid ${tab.id === 'salvage' ? 'var(--err-strong)' : ACCENT}` : '2px solid transparent',
+                      color: activeTab === tab.id ? (tab.id === 'salvage' ? 'var(--err-strong)' : ACCENT) : MUTED,
                       fontWeight: 600, fontSize: 11,
                       letterSpacing: '0.06em', textTransform: 'uppercase',
                       padding: '10px 16px', marginBottom: -1, transition: 'all 0.15s',
@@ -1250,21 +1275,21 @@ export default function Home() {
                           const dash = content => failed ? '—' : content;
                           return (
                           <tr key={i} style={failed ? { opacity: 0.65 } : undefined}>
-                            <td style={{ ...S.td, color: '#bbb', fontSize: 11, width: 36 }}>{i+1}</td>
+                            <td style={{ ...S.td, color: 'var(--muted-3)', fontSize: 11, width: 36 }}>{i+1}</td>
                             <td style={{ ...S.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
                               {row.domain}
-                              {failed && <span style={{ marginLeft: 6, fontSize: 10, color: '#b45309', background: '#fef9c3', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>unreachable</span>}
+                              {failed && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>unreachable</span>}
                             </td>
                             <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.wpCount))}</td>
                             <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.serpCount))}</td>
                             <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: ACCENT }}>{dash(fmt(row.rate, true))}</td>
                             <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.totalSequoia))}</td>
                             <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.indexedSequoia))}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#2563eb' }}>{dash(fmt(row.seqRate, true))}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: 'var(--link)' }}>{dash(fmt(row.seqRate, true))}</td>
                             <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.totalVideoBridge))}</td>
                             <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.indexedVideoBridge))}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#c2410c' }}>{dash(fmt(row.vbRate, true))}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: '#7c3aed' }}>{dash(row.combinedRate != null ? `${(row.combinedRate * 100).toFixed(2)}%` : 'N/A')}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: 'var(--vb)' }}>{dash(fmt(row.vbRate, true))}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: 'var(--combined)' }}>{dash(row.combinedRate != null ? `${(row.combinedRate * 100).toFixed(2)}%` : 'N/A')}</td>
                             <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{dash(row.priorityScore != null ? row.priorityScore : 'N/A')}</td>
                           </tr>
                           );
@@ -1286,10 +1311,10 @@ export default function Home() {
                       <tbody>
                         {postLinks.map((row, i) => (
                           <tr key={i}>
-                            <td style={{ ...S.td, color: '#bbb', fontSize: 11, width: 36 }}>{i+1}</td>
+                            <td style={{ ...S.td, color: 'var(--muted-3)', fontSize: 11, width: 36 }}>{i+1}</td>
                             <td style={{ ...S.td, fontSize: 12, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.domain}</td>
                             <td style={{ ...S.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              <a href={row.link} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 12 }}>{row.link}</a>
+                              <a href={row.link} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--link)', fontSize: 12 }}>{row.link}</a>
                             </td>
                             <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{row.pubDate || '—'}</td>
                             <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.externalCount)}</td>
@@ -1324,10 +1349,10 @@ export default function Home() {
                             const key = (row.domain || '').toLowerCase().trim();
                             return (
                               <tr key={i}>
-                                <td style={{ ...S.td, color: '#bbb', fontSize: 11, width: 36 }}>{i+1}</td>
+                                <td style={{ ...S.td, color: 'var(--muted-3)', fontSize: 11, width: 36 }}>{i+1}</td>
                                 <td style={{ ...S.td, fontSize: 12, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.domain}</td>
                                 <td style={{ ...S.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  <a href={row.link} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 12 }}>{row.link}</a>
+                                  <a href={row.link} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--link)', fontSize: 12 }}>{row.link}</a>
                                 </td>
                                 <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{row.pubDate || '—'}</td>
                                 <td style={S.td}><Tag value={row.taskType} /></td>

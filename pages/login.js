@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import Head from 'next/head';
 
-const ACCENT = '#95A940';
-const BORDER = '#e2e4da';
-const BG_PAGE = '#f0f0ec';
-const TEXT = '#1a1a1a';
-const MUTED = '#6b7068';
+// Colors read from the CSS variables in styles/globals.css (light + dark).
+const ACCENT = 'var(--accent)';
+const BORDER = 'var(--border)';
+const BG_PAGE = 'var(--bg-page)';
+const TEXT = 'var(--text)';
+const MUTED = 'var(--muted)';
 
 export default function Login() {
   const [password, setPassword] = useState('');
@@ -41,7 +42,7 @@ export default function Login() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
       <div style={{ minHeight: '100vh', background: BG_PAGE, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '40px 36px', width: '100%', maxWidth: 360, boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
+        <div style={{ background: 'var(--bg-card)', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '40px 36px', width: '100%', maxWidth: 360, boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>
             <div style={{ width: 4, height: 32, background: ACCENT, borderRadius: 2 }} />
@@ -60,20 +61,20 @@ export default function Login() {
               autoFocus
               style={{
                 width: '100%', padding: '11px 14px', fontSize: 14,
-                border: `1.5px solid ${error ? '#fca5a5' : BORDER}`, borderRadius: 6,
-                outline: 'none', color: TEXT, background: '#fafaf9',
+                border: `1.5px solid ${error ? 'var(--err-border)' : BORDER}`, borderRadius: 6,
+                outline: 'none', color: TEXT, background: 'var(--input-bg)',
                 boxSizing: 'border-box', marginBottom: error ? 8 : 16,
               }}
             />
             {error && (
-              <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 14 }}>{error}</div>
+              <div style={{ fontSize: 12, color: 'var(--err-strong)', marginBottom: 14 }}>{error}</div>
             )}
             <button
               type="submit"
               disabled={loading || !password}
               style={{
                 width: '100%', padding: '11px 18px', fontSize: 14, fontWeight: 600,
-                background: loading || !password ? '#c8d9a0' : ACCENT,
+                background: loading || !password ? 'var(--accent-disabled)' : ACCENT,
                 color: '#fff', border: 'none', borderRadius: 6,
                 cursor: loading || !password ? 'not-allowed' : 'pointer',
               }}
