@@ -809,12 +809,32 @@ export default function Home() {
         indexedSequoia: r.indexedSequoia,
         rate: r.rate,
         seqRate: r.seqRate,
+        totalVideoBridge: r.totalVideoBridge,
+        indexedVideoBridge: r.indexedVideoBridge,
+        vbRate: r.vbRate,
+        combinedRate: r.combinedRate,
+        priorityScore: r.priorityScore,
         failed: r.failed || false,
+        failReason: r.failReason,
       }));
+      // Salvage candidates (Sequoia + Unindexed) get appended to the salvage tab,
+      // tagged with their domain's priority score.
+      const prioMap = {};
+      trackerResults.forEach(r => { prioMap[(r.domain || '').toLowerCase().trim()] = r.priorityScore; });
+      const salvagePosts = postLinks
+        .filter(l => l.taskType === 'Sequoia' && l.indexStatus === 'Unindexed')
+        .map(r => ({
+          domain: r.domain,
+          link: r.link,
+          pubDate: r.pubDate,
+          taskType: r.taskType,
+          indexStatus: r.indexStatus,
+          priorityScore: prioMap[(r.domain || '').toLowerCase().trim()],
+        }));
       const res = await fetch('/api/tracking/write', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ results }),
+        body: JSON.stringify({ results, salvagePosts }),
       });
       const json = await res.json();
       if (!res.ok || json.error) throw new Error(json.error || `Write failed (${res.status})`);
@@ -825,6 +845,8 @@ export default function Home() {
       if (json.notFound?.length) parts.push(`${json.notFound.length} not found in sheet`);
       if (json.history?.logged) parts.push(`logged ${json.history.logged} to history`);
       if (json.history?.error) parts.push(`history log failed (${json.history.error})`);
+      if (json.salvage?.appended) parts.push(`appended ${json.salvage.appended} salvage post${json.salvage.appended === 1 ? '' : 's'}`);
+      if (json.salvage?.error) parts.push(`salvage append failed (${json.salvage.error})`);
       setSheetMsg({ type: 'success', text: parts.join(' · ') + '.' });
     } catch (err) {
       setSheetMsg({ type: 'error', text: err.message });
@@ -973,7 +995,10 @@ export default function Home() {
           failedSet.has((row.domain || '').toLowerCase().trim()) ? { ...row, failed: true } : row
         );
         setTrackerResults([...tracker]);
-        addLog(`${failedSet.size} site(s) were unreachable — left blank (no score).`, 'info');
+        tracker.filter(r => r.failed).forEach(r =>
+          addLog(`  ⚠ ${r.domain}: ${r.failReason || 'Unreachable'}`, 'error')
+        );
+        addLog(`${failedSet.size} site(s) failed — see reasons above (left blank, no score).`, 'info');
       }
 
       addLog('All steps complete! Download your results below.', 'success');
@@ -1272,25 +1297,39 @@ export default function Home() {
                       <tbody>
                         {trackerResults.map((row, i) => {
                           const failed = row.failed;
-                          const dash = content => failed ? '—' : content;
+                          // Failed sites: show the specific reason across the row
+                          // instead of a clipped badge + a wall of dashes.
+                          if (failed) {
+                            return (
+                            <tr key={i} style={{ opacity: 0.9 }}>
+                              <td style={{ ...S.td, color: 'var(--muted-3)', fontSize: 11, width: 36 }}>{i+1}</td>
+                              <td style={{ ...S.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }} title={row.domain}>
+                                {row.domain}
+                              </td>
+                              <td colSpan={11} style={{ ...S.td, color: 'var(--err-strong)' }}>
+                                <span style={{ fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 6px', borderRadius: 3, fontWeight: 700, marginRight: 8 }}>FAILED</span>
+                                {row.failReason || 'Unreachable'}
+                              </td>
+                            </tr>
+                            );
+                          }
                           return (
-                          <tr key={i} style={failed ? { opacity: 0.65 } : undefined}>
+                          <tr key={i}>
                             <td style={{ ...S.td, color: 'var(--muted-3)', fontSize: 11, width: 36 }}>{i+1}</td>
-                            <td style={{ ...S.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
+                            <td style={{ ...S.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }} title={row.domain}>
                               {row.domain}
-                              {failed && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>unreachable</span>}
                             </td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.wpCount))}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.serpCount))}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: ACCENT }}>{dash(fmt(row.rate, true))}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.totalSequoia))}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.indexedSequoia))}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: 'var(--link)' }}>{dash(fmt(row.seqRate, true))}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.totalVideoBridge))}</td>
-                            <td style={{ ...S.td, textAlign: 'right' }}>{dash(fmt(row.indexedVideoBridge))}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: 'var(--vb)' }}>{dash(fmt(row.vbRate, true))}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: 'var(--combined)' }}>{dash(row.combinedRate != null ? `${(row.combinedRate * 100).toFixed(2)}%` : 'N/A')}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{dash(row.priorityScore != null ? row.priorityScore : 'N/A')}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.wpCount)}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.serpCount)}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: ACCENT }}>{fmt(row.rate, true)}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.totalSequoia)}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.indexedSequoia)}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: 'var(--link)' }}>{fmt(row.seqRate, true)}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.totalVideoBridge)}</td>
+                            <td style={{ ...S.td, textAlign: 'right' }}>{fmt(row.indexedVideoBridge)}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: 'var(--vb)' }}>{fmt(row.vbRate, true)}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: 'var(--combined)' }}>{row.combinedRate != null ? `${(row.combinedRate * 100).toFixed(2)}%` : 'N/A'}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>{row.priorityScore != null ? row.priorityScore : 'N/A'}</td>
                           </tr>
                           );
                         })}

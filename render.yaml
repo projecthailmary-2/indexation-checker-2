@@ -14,6 +14,8 @@ services:
       - key: GOOGLE_SHEET_ID
         sync: false
       - key: GOOGLE_TRACKING_TAB
-        value: "TRACKING- MAINTENANCE/REHAB"
+        value: "Tracker"
+      - key: GOOGLE_SALVAGE_TAB
+        value: "For Salvage Check"
       - key: NODE_ENV
         value: production

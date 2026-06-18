@@ -9,6 +9,19 @@
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Short, human-readable reason for a thrown fetch error (timeout / DNS / …).
+function describeNetworkError(err) {
+  const name = err?.name || '';
+  const code = err?.cause?.code || err?.code || '';
+  if (name === 'TimeoutError' || name === 'AbortError') return 'Timed out';
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'Domain not found (DNS)';
+  if (code === 'ECONNREFUSED') return 'Connection refused';
+  if (code === 'ECONNRESET') return 'Connection reset';
+  const c = String(code);
+  if (c.includes('CERT') || c.includes('SSL') || c.startsWith('ERR_TLS')) return 'SSL/certificate error';
+  return 'Unreachable';
+}
+
 async function fetchPostLinks(domain) {
   let base = domain.toString().trim().replace(/\/$/, '');
   if (!base.startsWith('http')) base = 'https://' + base;
@@ -17,15 +30,17 @@ async function fetchPostLinks(domain) {
   const before = new Date(); before.setDate(now.getDate() - 24);
   const after = new Date(); after.setMonth(now.getMonth() - 6);
 
+  let reason = 'Unreachable';
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const res = await fetch(
         `${base}/wp-json/wp/v2/posts?after=${after.toISOString()}&before=${before.toISOString()}&per_page=100`,
         { signal: AbortSignal.timeout(15000) }
       );
+      if (!res.ok) return { domain, count: 'Conn. Error', links: [], reason: `Site error (HTTP ${res.status})` };
       const total = res.headers.get('x-wp-total') || res.headers.get('X-WP-Total');
       const posts = await res.json();
-      if (!Array.isArray(posts)) return { domain, count: 'Error', links: [] };
+      if (!Array.isArray(posts)) return { domain, count: 'Error', links: [], reason: 'Unexpected WP response' };
 
       const links = posts.map(p => ({
         url: p.link,
@@ -33,9 +48,10 @@ async function fetchPostLinks(domain) {
       }));
 
       return { domain, count: parseInt(total) || links.length, links };
-    } catch {
+    } catch (err) {
+      reason = describeNetworkError(err);
       if (attempt < 3) { await sleep(800 * attempt); continue; }
-      return { domain, count: 'Conn. Error', links: [] };
+      return { domain, count: 'Conn. Error', links: [], reason };
     }
   }
 }
@@ -104,8 +120,10 @@ export default async function handler(req, res) {
       continue;
     }
 
-    const { count, links } = await fetchPostLinks(domain);
-    trackerResults.push({ domain, postCount: count });
+    const { count, links, reason } = await fetchPostLinks(domain);
+    const row = { domain, postCount: count };
+    if (reason) row.failReason = reason;
+    trackerResults.push(row);
 
     for (const { url, pubDate } of links) {
       const { externalCount, taskType } = await analyzePost(url, domain);
