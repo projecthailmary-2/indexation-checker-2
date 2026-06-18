@@ -1,0 +1,148 @@
+// scripts/run-batch.mjs
+// Background audit runner. Pulls the next N least-recently-checked sites from
+// the sheet, audits them, and writes results back in small chunks (so a crash
+// loses almost nothing and the next run resumes automatically). Stops cleanly
+// if SerpApi credits run out.
+//
+// Runs outside the browser and outside Vercel (e.g. GitHub Actions), so it has
+// no function-timeout limit.
+//
+// Env:
+//   BATCH_SIZE   how many sites to audit this run        (default 300)
+//   CHUNK_SIZE   how many sites per incremental save      (default 25)
+//   DRY_RUN=1    audit but DO NOT write to the sheet      (for safe testing)
+//   plus the usual GOOGLE_* / SERPAPI_KEY credentials.
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { auditDomain } from '../lib/audit.js';
+import {
+  sheetsConfigured, getTrackingSites,
+  writeTrackingResults, appendIndexationHistory, appendSalvagePosts,
+} from '../lib/sheets.js';
+import { isEnabled, setStatus, getBatchSize } from '../lib/runnerState.js';
+
+// Load .env.local for local runs (in CI the env is already populated).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const envPath = path.join(__dirname, '..', '.env.local');
+if (fs.existsSync(envPath)) {
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+    if (m && !process.env[m[1]]) {
+      let v = m[2];
+      if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+      process.env[m[1]] = v;
+    }
+  }
+}
+
+const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE, 10) || 25;
+const DRY_RUN = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
+
+// Daily size: an explicit env BATCH_SIZE (e.g. a manual "Run workflow" input)
+// wins for one-off overrides; otherwise use the value set in the app (KV);
+// otherwise default 300.
+async function resolveBatchSize() {
+  const envN = parseInt(process.env.BATCH_SIZE, 10);
+  if (Number.isFinite(envN) && envN > 0) return envN;
+  return (await getBatchSize()) || 300;
+}
+
+const norm = s => String(s || '').trim().toLowerCase()
+  .replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+
+function log(msg) { console.log(`[${new Date().toISOString()}] ${msg}`); }
+
+// Write one chunk's worth of results to the sheet (Tracker + History + Salvage).
+async function saveChunk(rows, posts) {
+  if (DRY_RUN) { log(`  (dry run) would save ${rows.length} sites, ${posts.length} posts`); return; }
+  await writeTrackingResults(rows);
+  try { await appendIndexationHistory(rows); } catch (e) { log(`  history append failed: ${e.message}`); }
+  const prio = {};
+  rows.forEach(r => { prio[norm(r.domain)] = r.priorityScore; });
+  const salvage = posts
+    .filter(p => p.taskType === 'Sequoia' && p.indexStatus === 'Unindexed')
+    .map(p => ({ ...p, priorityScore: prio[norm(p.domain)] }));
+  try { await appendSalvagePosts(salvage); } catch (e) { log(`  salvage append failed: ${e.message}`); }
+}
+
+async function main() {
+  if (!sheetsConfigured()) {
+    log('ERROR: Google Sheet not configured (need GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, GOOGLE_SHEET_ID).');
+    process.exit(1);
+  }
+
+  // Respect the app's On/Off switch (unless this is a dry test run).
+  if (!DRY_RUN && !(await isEnabled())) {
+    log('Automation is OFF (toggle it on in the app) — skipping this run.');
+    await setStatus({ state: 'idle', lastSkippedAt: new Date().toISOString() });
+    return;
+  }
+
+  const BATCH_SIZE = await resolveBatchSize();
+  log(`Starting batch: up to ${BATCH_SIZE} sites, saving every ${CHUNK_SIZE}${DRY_RUN ? ' (DRY RUN)' : ''}.`);
+  const { domains, total } = await getTrackingSites({ limit: BATCH_SIZE });
+  log(`Pulled ${domains.length} least-recently-checked sites (of ${total} total).`);
+  await setStatus({ state: 'running', startedAt: new Date().toISOString(), requested: domains.length, audited: 0, failed: 0, saved: 0, creditStop: null });
+
+  const summary = { requested: domains.length, audited: 0, failed: 0, saved: 0, creditStop: null, failReasons: {} };
+  let rowBuf = [];
+  let postBuf = [];
+
+  const flush = async () => {
+    if (!rowBuf.length) return;
+    await saveChunk(rowBuf, postBuf);
+    summary.saved += rowBuf.length;
+    log(`  saved ${rowBuf.length} (running total ${summary.saved}).`);
+    rowBuf = [];
+    postBuf = [];
+    await setStatus({ audited: summary.audited, failed: summary.failed, saved: summary.saved });
+  };
+
+  for (const domain of domains) {
+    let res;
+    try {
+      res = await auditDomain(domain);
+    } catch (e) {
+      log(`  ${domain}: audit error (${e.message}) — skipping.`);
+      continue;
+    }
+    if (res.creditIssue) {
+      summary.creditStop = res.creditIssue;
+      log(`SerpApi blocked us (${res.creditIssue}) — stopping. Progress so far is safe.`);
+      break;
+    }
+    rowBuf.push(res.row);
+    postBuf.push(...res.posts);
+    if (res.row.failed) {
+      summary.failed++;
+      const r = res.row.failReason || 'Unreachable';
+      summary.failReasons[r] = (summary.failReasons[r] || 0) + 1;
+    } else {
+      summary.audited++;
+    }
+    if (rowBuf.length >= CHUNK_SIZE) {
+      await flush();
+      // Let the user stop the automation mid-run from the app — checked at
+      // chunk boundaries so progress is always saved first.
+      if (!DRY_RUN && !(await isEnabled())) {
+        summary.stoppedByUser = true;
+        log('Automation switched OFF mid-run — stopping cleanly. Progress is saved.');
+        break;
+      }
+    }
+  }
+  await flush();
+
+  await setStatus({ state: 'idle', finishedAt: new Date().toISOString(), lastRun: summary });
+
+  log('--- DONE ---');
+  log(JSON.stringify(summary, null, 2));
+  // Surface a one-line result for the workflow to forward to Slack later.
+  console.log(`RESULT: audited ${summary.audited}, failed ${summary.failed}, saved ${summary.saved}` +
+    (summary.creditStop ? `, STOPPED (${summary.creditStop})` : '') +
+    (summary.stoppedByUser ? ', STOPPED (by user)' : '') + '.');
+}
+
+main().catch(e => { console.error('Runner crashed:', e); process.exit(1); });

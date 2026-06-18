@@ -1,28 +1,11 @@
 // pages/api/steps/step8.js
-// Batched SerpApi indexation check — 15 posts per call to stay under Vercel 60s limit
+// Batched SerpApi indexation check — 15 posts per call to stay under the
+// per-request time limit. Thin wrapper around the shared engine in lib/audit.js.
 
-const SERPAPI_KEY = process.env.SERPAPI_KEY;
+import { checkIndexed, sleep } from '../../../lib/audit';
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-async function checkIndexed(url) {
-  const apiUrl = `https://serpapi.com/search.json?q=${encodeURIComponent(`site:${url}`)}&engine=google&api_key=${SERPAPI_KEY}`;
-  try {
-    const res = await fetch(apiUrl, { signal: AbortSignal.timeout(12000) });
-    const json = await res.json();
-    if (json.error) {
-      if (json.error.toLowerCase().includes("hasn't returned")) return 'Unindexed';
-      if (json.error.includes('api_key')) return 'Invalid Key';
-      if (json.error.includes('credits')) return 'No Credits';
-      return 'Error';
-    }
-    const total = json.search_information?.total_results || 0;
-    const hasOrganic = json.organic_results?.length > 0;
-    return (total > 0 || hasOrganic) ? 'Indexed' : 'Unindexed';
-  } catch {
-    return 'Conn. Error';
-  }
-}
+// Allow up to Vercel's 5-minute ceiling (raises the manual-run size).
+export const config = { maxDuration: 300 };
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();

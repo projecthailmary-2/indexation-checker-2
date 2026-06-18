@@ -1,0 +1,76 @@
+name: Indexation Audit
+
+# How this runs:
+#  - schedule:            once a day (the runner checks the app's On/Off flag and
+#                         skips immediately if it's Off).
+#  - workflow_dispatch:   manual "Run workflow" button (optional batch size).
+#  - repository_dispatch:  triggered by the in-app button (event type "run-audit").
+on:
+  # Daily schedule is intentionally disabled until setup is verified. After the
+  # first successful manual/in-app run, uncomment to turn on the autopilot:
+  # schedule:
+  #   - cron: '0 1 * * *'   # 01:00 UTC daily (~09:00 Manila)
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: 'How many sites to audit this run'
+        required: false
+        default: '300'
+  repository_dispatch:
+    types: [run-audit]
+
+# Never run two audits at once; let a running one finish rather than cancel it.
+concurrency:
+  group: indexation-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350   # under GitHub's 6-hour job ceiling
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Run audit batch
+        id: run
+        env:
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_TRACKING_TAB: ${{ secrets.GOOGLE_TRACKING_TAB }}
+          GOOGLE_SALVAGE_TAB: ${{ secrets.GOOGLE_SALVAGE_TAB }}
+          KV_REST_API_URL: ${{ secrets.KV_REST_API_URL }}
+          KV_REST_API_TOKEN: ${{ secrets.KV_REST_API_TOKEN }}
+          # Manual "Run workflow" input overrides; otherwise the runner uses the
+          # "Sites per day" value set in the app (KV), falling back to 300.
+          BATCH_SIZE: ${{ github.event.inputs.batch_size }}
+          CHUNK_SIZE: '25'
+        run: |
+          set -o pipefail
+          node --no-warnings scripts/run-batch.mjs 2>&1 | tee run.log
+          RESULT="$(grep '^RESULT:' run.log | tail -1 || true)"
+          echo "result=${RESULT:-RESULT: (no summary — see logs)}" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RESULT: ${{ steps.run.outputs.result }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && { echo "No Slack webhook configured; skipping notification."; exit 0; }
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ "$JOB_STATUS" = "success" ]; then
+            TEXT="✅ Indexation audit finished — ${RESULT:-done}. <${RUN_URL}|view run>"
+          else
+            TEXT="⚠️ Indexation audit ${JOB_STATUS} — <${RUN_URL}|view logs>"
+          fi
+          jq -n --arg t "$TEXT" '{text:$t}' | curl -s -X POST -H 'Content-type: application/json' -d @- "$SLACK_WEBHOOK_URL"

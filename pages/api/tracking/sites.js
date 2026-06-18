@@ -11,7 +11,8 @@ export default async function handler(req, res) {
   }
   try {
     const limit = parseInt(req.query.limit, 10);
-    const result = await getTrackingSites({ limit: Number.isFinite(limit) ? limit : 0 });
+    const failedOnly = req.query.failed === '1' || req.query.failed === 'true';
+    const result = await getTrackingSites({ limit: Number.isFinite(limit) ? limit : 0, failedOnly });
     return res.status(200).json(result);
   } catch (err) {
     return res.status(500).json({ error: err.message });

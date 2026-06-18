@@ -3,101 +3,15 @@
 // Step 5: Count external links — drills into <main> > <article> > <p>, ignores date links
 // Step 6: Categorize task types (Video Bridge / Sequoia / Others)
 // Step 7: Aggregate Sequoia & VB counts per domain
-
+// Thin wrapper around the shared engine in lib/audit.js.
+//
 // Post Links columns:
 // A: Domain, B: Post Link, C: Pub Date, D: External Links, E: Task Type, F: Index Status
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+import { fetchPostLinks, analyzePost } from '../../../lib/audit';
 
-// Short, human-readable reason for a thrown fetch error (timeout / DNS / …).
-function describeNetworkError(err) {
-  const name = err?.name || '';
-  const code = err?.cause?.code || err?.code || '';
-  if (name === 'TimeoutError' || name === 'AbortError') return 'Timed out';
-  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'Domain not found (DNS)';
-  if (code === 'ECONNREFUSED') return 'Connection refused';
-  if (code === 'ECONNRESET') return 'Connection reset';
-  const c = String(code);
-  if (c.includes('CERT') || c.includes('SSL') || c.startsWith('ERR_TLS')) return 'SSL/certificate error';
-  return 'Unreachable';
-}
-
-async function fetchPostLinks(domain) {
-  let base = domain.toString().trim().replace(/\/$/, '');
-  if (!base.startsWith('http')) base = 'https://' + base;
-
-  const now = new Date();
-  const before = new Date(); before.setDate(now.getDate() - 24);
-  const after = new Date(); after.setMonth(now.getMonth() - 6);
-
-  let reason = 'Unreachable';
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const res = await fetch(
-        `${base}/wp-json/wp/v2/posts?after=${after.toISOString()}&before=${before.toISOString()}&per_page=100`,
-        { signal: AbortSignal.timeout(15000) }
-      );
-      if (!res.ok) return { domain, count: 'Conn. Error', links: [], reason: `Site error (HTTP ${res.status})` };
-      const total = res.headers.get('x-wp-total') || res.headers.get('X-WP-Total');
-      const posts = await res.json();
-      if (!Array.isArray(posts)) return { domain, count: 'Error', links: [], reason: 'Unexpected WP response' };
-
-      const links = posts.map(p => ({
-        url: p.link,
-        pubDate: p.date ? p.date.split('T')[0] : '', // Format: YYYY-MM-DD
-      }));
-
-      return { domain, count: parseInt(total) || links.length, links };
-    } catch (err) {
-      reason = describeNetworkError(err);
-      if (attempt < 3) { await sleep(800 * attempt); continue; }
-      return { domain, count: 'Conn. Error', links: [], reason };
-    }
-  }
-}
-
-async function analyzePost(postUrl, sourceDomain) {
-  try {
-    const res = await fetch(postUrl, { signal: AbortSignal.timeout(15000) });
-    const html = await res.text();
-
-    // Step 5: Drill down — <main> > <article> > <p> tags only
-    const mainMatch = html.match(/<main[^>]*>([\s\S]*)<\/main>/i);
-    let searchArea = mainMatch ? mainMatch[1] : html;
-
-    const articleMatch = searchArea.match(/<article[^>]*>([\s\S]*)<\/article>/i);
-    if (articleMatch) searchArea = articleMatch[1];
-
-    const pMatches = searchArea.match(/<p[\s\S]*?<\/p>/gi);
-    const cleanContent = pMatches ? pMatches.join(' ') : '';
-
-    // Count external links — ignore date-based links like /2024/05/
-    const rootDomain = sourceDomain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
-    const hrefRegex = /href=["'](https?:\/\/[^"']+)["']/g;
-    let match;
-    let externalCount = 0;
-
-    while ((match = hrefRegex.exec(cleanContent)) !== null) {
-      const link = match[1];
-      const isExternal = !link.includes(rootDomain) && link.startsWith('http');
-      const isDateLink = /\/\d{4}\/\d{2}\//.test(link);
-      if (isExternal && !isDateLink) externalCount++;
-    }
-
-    // Step 6: Check YouTube in full body for Video Bridge
-    const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-    const body = bodyMatch ? bodyMatch[1].toLowerCase() : html.toLowerCase();
-    const hasYouTube = body.includes('youtube.com') || body.includes('youtu.be');
-
-    let taskType = 'Others';
-    if (hasYouTube) taskType = 'Video Bridge';
-    else if (externalCount >= 10) taskType = 'Sequoia';
-
-    return { externalCount, taskType };
-  } catch {
-    return { externalCount: 0, taskType: 'Error' };
-  }
-}
+// Allow up to Vercel's 5-minute ceiling (raises the manual-run size).
+export const config = { maxDuration: 300 };
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();

@@ -33,12 +33,14 @@ const SECTIONS = [
   { id: 'url', label: 'URL Index Checker' },
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'usage', label: 'Usage' },
+  { id: 'automation', label: 'Automation' },
 ];
 const SECTION_TABS = {
   site: ['tracker', 'postlinks', 'salvage', 'log'],
   url: ['indexcheck'],
   dashboard: ['dashboard'],
   usage: ['usage'],
+  automation: ['automation'],
 };
 
 const S = {
@@ -631,6 +633,149 @@ function IndexChecker({ onCreditsLogged }) {
   );
 }
 
+// Control panel for the background audit runner: On/Off, "Run a batch now",
+// and live status. Talks to /api/runner; never touches GitHub directly.
+function AutomationPanel({ active }) {
+  const [state, setState] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [sizeInput, setSizeInput] = useState('');
+
+  const load = useCallback(() => {
+    fetch('/api/runner').then(r => r.json())
+      .then(d => { setState(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  // Seed the "sites per day" field from the saved value (once), without
+  // clobbering what the user is typing on later auto-refreshes.
+  useEffect(() => {
+    if (state?.batchSize != null) setSizeInput(prev => (prev === '' ? String(state.batchSize) : prev));
+  }, [state]);
+
+  useEffect(() => {
+    if (!active) return;
+    load();
+    const id = setInterval(load, 20000); // keep status fresh while open
+    return () => clearInterval(id);
+  }, [active, load]);
+
+  async function act(action) {
+    setBusy(true); setMsg(null);
+    try {
+      const res = await fetch('/api/runner', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || 'Action failed.');
+      if (action === 'run') setMsg({ type: 'success', text: 'Batch started — it runs in the background and will Slack you when done.' });
+      load();
+    } catch (e) {
+      setMsg({ type: 'error', text: e.message });
+    } finally { setBusy(false); }
+  }
+
+  async function saveSize() {
+    const n = parseInt(sizeInput, 10);
+    if (!Number.isFinite(n) || n <= 0) { setMsg({ type: 'error', text: 'Enter a positive number of sites per day.' }); return; }
+    setBusy(true); setMsg(null);
+    try {
+      const res = await fetch('/api/runner', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'setBatchSize', value: n }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || 'Could not save.');
+      setMsg({ type: 'success', text: `Sites per day set to ${n}.` });
+      load();
+    } catch (e) {
+      setMsg({ type: 'error', text: e.message });
+    } finally { setBusy(false); }
+  }
+
+  if (loading) return <div style={{ padding: 16, color: MUTED, fontSize: 13 }}>Loading…</div>;
+  if (!state?.configured) {
+    return <div style={{ padding: 16, fontSize: 13, color: MUTED }}>Automation isn’t set up yet — the runner’s storage keys haven’t been added. Once setup is done, the On/Off control appears here.</div>;
+  }
+
+  const enabled = state.enabled;
+  const st = state.status || {};
+  const lr = st.lastRun || null;
+  const running = st.state === 'running';
+
+  return (
+    <div style={{ padding: '16px 14px', maxWidth: 560 }}>
+      <div style={{ ...S.statCard, padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>Automatic daily audit</div>
+            <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>
+              Status: <strong style={{ color: enabled ? 'var(--accent-strong)' : MUTED }}>{enabled ? 'ON' : 'OFF'}</strong>
+              {running ? ' · running now' : ''}
+            </div>
+          </div>
+          <button onClick={() => act(enabled ? 'disable' : 'enable')} disabled={busy}
+            style={{ ...(enabled ? S.btnOutline : S.btnPrimary), minWidth: 110, opacity: busy ? 0.6 : 1 }}>
+            {enabled ? 'Turn Off' : 'Turn On'}
+          </button>
+        </div>
+
+        <div style={{ marginTop: 14, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button onClick={() => act('run')} disabled={busy || !enabled || running}
+            title={!enabled ? 'Turn automation on first' : running ? 'A run is already in progress' : 'Start a batch now'}
+            style={{ ...S.btnOutline, opacity: (busy || !enabled || running) ? 0.5 : 1 }}>
+            ▶ Run a batch now
+          </button>
+          <button onClick={load} disabled={busy} style={{ ...S.btnGhost, opacity: busy ? 0.6 : 1 }}>↻ Refresh</button>
+        </div>
+
+        <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <label style={{ fontSize: 12, color: MUTED }}>Sites per day</label>
+          <input type="number" min="1" value={sizeInput} onChange={e => setSizeInput(e.target.value)} disabled={busy}
+            style={{ width: 84, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--accent-light-border)', background: 'transparent', color: 'inherit', fontSize: 13 }} />
+          <button onClick={saveSize} disabled={busy} style={{ ...S.btnGhost, opacity: busy ? 0.6 : 1 }}>Save</button>
+          <span style={{ fontSize: 11, color: MUTED }}>
+            ≈ {Math.max(1, Math.ceil(3049 / (parseInt(sizeInput, 10) || 300)))} days for the full library
+          </span>
+        </div>
+
+        {msg && (
+          <div style={{ marginTop: 12, fontSize: 12, padding: '6px 8px', borderRadius: 4,
+            background: msg.type === 'error' ? 'var(--err-bg)' : 'var(--accent-light)',
+            color: msg.type === 'error' ? 'var(--err-text)' : 'var(--accent-strong)',
+            border: `1px solid ${msg.type === 'error' ? 'var(--err-border)' : 'var(--accent-light-border)'}` }}>
+            {msg.text}
+          </div>
+        )}
+      </div>
+
+      <div style={{ ...S.statCard, padding: 16, marginTop: 12 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Last run</div>
+        {lr ? (
+          <div style={{ fontSize: 13, color: TEXT, lineHeight: 1.7 }}>
+            Audited <strong>{lr.audited ?? 0}</strong> · failed <strong>{lr.failed ?? 0}</strong> · saved <strong>{lr.saved ?? 0}</strong>
+            {lr.creditStop ? <span style={{ color: 'var(--err-text)' }}> · stopped (no credits)</span> : null}
+            {lr.stoppedByUser ? <span style={{ color: MUTED }}> · stopped by you</span> : null}
+            <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>
+              {st.finishedAt ? `Finished ${new Date(st.finishedAt).toLocaleString()}` : (st.updatedAt ? `Updated ${new Date(st.updatedAt).toLocaleString()}` : '')}
+            </div>
+          </div>
+        ) : running ? (
+          <div style={{ fontSize: 13, color: TEXT }}>Running now — audited {st.audited ?? 0}, saved {st.saved ?? 0} so far…</div>
+        ) : (
+          <div style={{ fontSize: 13, color: MUTED }}>No runs yet.</div>
+        )}
+      </div>
+
+      <div style={{ fontSize: 11, color: MUTED, marginTop: 10, lineHeight: 1.6 }}>
+        When ON, ~300 sites are audited automatically once a day (least-recently-checked first) until the whole library is refreshed, then it idles. Turn OFF any time — a run in progress stops cleanly after saving its current chunk.
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [domains, setDomains] = useState('');
   const [running, setRunning] = useState(false);
@@ -771,23 +916,36 @@ export default function Home() {
     downloadCSV('salvage-sequoias.csv', toCSV(rows, headers));
   }
 
-  // Load the site list straight from the TRACKING- MAINTENANCE/REHAB tab.
-  async function handleLoadSites() {
+  // Load the site list straight from the tracking tab. `failedOnly` pulls just
+  // the sites currently flagged in the sheet (their count cell shows a status
+  // word / note instead of a number), so you can re-run only the failures.
+  async function handleLoadSites(failedOnly = false) {
     if (loadingSites || running) return;
     setLoadingSites(true);
     setLoadSitesMsg(null);
     try {
       const n = parseInt(siteLimit, 10);
-      const qs = Number.isFinite(n) && n > 0 ? `?limit=${n}` : '';
+      const params = new URLSearchParams();
+      if (Number.isFinite(n) && n > 0) params.set('limit', n);
+      if (failedOnly) params.set('failed', '1');
+      const qs = params.toString() ? `?${params}` : '';
       const res = await fetch(`/api/tracking/sites${qs}`);
       const json = await res.json();
       if (!res.ok || json.error) throw new Error(json.error || `Load failed (${res.status})`);
       setDomains((json.domains || []).join('\n'));
-      const checkedNote = json.oldestChecked ? `oldest last-checked: ${json.oldestChecked}` : '';
-      setLoadSitesMsg({
-        type: 'success',
-        text: `Loaded ${json.count} of ${json.total} sites (least-recently-checked first; ${json.neverChecked} never checked)${checkedNote ? ` · ${checkedNote}` : ''}.`,
-      });
+      if (failedOnly) {
+        setLoadSitesMsg(
+          json.count === 0
+            ? { type: 'success', text: `No flagged sites to re-run — all ${json.total} sites have a clean count.` }
+            : { type: 'success', text: `Loaded ${json.count} flagged site${json.count === 1 ? '' : 's'} to re-run (of ${json.flaggedCount} total flagged).` }
+        );
+      } else {
+        const checkedNote = json.oldestChecked ? `oldest last-checked: ${json.oldestChecked}` : '';
+        setLoadSitesMsg({
+          type: 'success',
+          text: `Loaded ${json.count} of ${json.total} sites (least-recently-checked first; ${json.neverChecked} never checked)${checkedNote ? ` · ${checkedNote}` : ''}.`,
+        });
+      }
     } catch (err) {
       setLoadSitesMsg({ type: 'error', text: err.message });
     } finally {
@@ -798,6 +956,13 @@ export default function Home() {
   // Write the finished run's measured values back into the TRACKING tab.
   async function handleSaveToSheet() {
     if (savingSheet || sheetSaved || !trackerResults.length) return;
+    // Guard: a run that didn't finish (e.g. timed out) has no Sequoia/VB data,
+    // so saving it would write "ERROR" over good numbers. runId is only set when
+    // the run completes all steps — block the save until then.
+    if (!runId) {
+      setSheetMsg({ type: 'error', text: 'This run didn’t finish (it stopped partway), so it can’t be saved — the Sequoia/VideoBridge data is missing and saving would overwrite good numbers with errors. Re-run these sites in a smaller batch until it completes, then Save.' });
+      return;
+    }
     setSavingSheet(true);
     setSheetMsg(null);
     try {
@@ -1120,10 +1285,18 @@ export default function Home() {
                 </div>
                 <button
                   style={{ ...S.btnOutline, width: '100%', textAlign: 'center', marginTop: 8, opacity: loadingSites || running ? 0.6 : 1 }}
-                  onClick={handleLoadSites}
+                  onClick={() => handleLoadSites(false)}
                   disabled={loadingSites || running}
                 >
                   {loadingSites ? 'Loading…' : '↓ Load oldest-checked sites'}
+                </button>
+                <button
+                  style={{ ...S.btnOutline, width: '100%', textAlign: 'center', marginTop: 6, opacity: loadingSites || running ? 0.6 : 1, borderColor: 'var(--warn-text)', color: 'var(--warn-text)' }}
+                  onClick={() => handleLoadSites(true)}
+                  disabled={loadingSites || running}
+                  title="Pull only the sites currently flagged in the sheet (count shows an error/note instead of a number), e.g. to re-run after manually fixing them."
+                >
+                  {loadingSites ? 'Loading…' : '⚠ Load failed sites'}
                 </button>
                 {loadSitesMsg && (
                   <div style={{
@@ -1407,6 +1580,9 @@ export default function Home() {
 
                   {/* DASHBOARD TAB */}
                   {activeTab === 'dashboard' && <Dashboard active={activeTab === 'dashboard'} />}
+
+                  {/* AUTOMATION TAB — background runner control panel */}
+                  {activeTab === 'automation' && <AutomationPanel active={activeTab === 'automation'} />}
 
                   {/* URL INDEX CHECKER TAB — kept mounted (hidden) so input/results persist across tab switches */}
                   <div style={{ display: activeTab === 'indexcheck' ? 'block' : 'none' }}>
