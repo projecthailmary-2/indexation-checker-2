@@ -22,6 +22,7 @@ import {
   writeTrackingResults, appendIndexationHistory, appendSalvagePosts,
 } from '../lib/sheets.js';
 import { isEnabled, setStatus, getBatchSize } from '../lib/runnerState.js';
+import { recordUsage } from '../lib/usage.js';
 
 // Load .env.local for local runs (in CI the env is already populated).
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -101,7 +102,7 @@ async function main() {
   log(`Pulled ${domains.length} of ${eligible} stale sites (of ${total} total).`);
   await setStatus({ state: 'running', startedAt: new Date().toISOString(), requested: domains.length, audited: 0, failed: 0, saved: 0, creditStop: null });
 
-  const summary = { requested: domains.length, audited: 0, failed: 0, saved: 0, creditStop: null, failReasons: {} };
+  const summary = { requested: domains.length, audited: 0, failed: 0, saved: 0, creditStop: null, failReasons: {}, searchCredits: 0, checkCredits: 0 };
   let rowBuf = [];
   let postBuf = [];
 
@@ -123,6 +124,10 @@ async function main() {
       log(`  ${domain}: audit error (${e.message}) — skipping.`);
       continue;
     }
+    // Tally SerpApi credits actually spent (counted even on a credit-stop, since
+    // the calls before the quota hit were charged).
+    summary.searchCredits += res.credits?.search || 0;
+    summary.checkCredits += res.credits?.checks || 0;
     if (res.creditIssue) {
       summary.creditStop = res.creditIssue;
       log(`SerpApi blocked us (${res.creditIssue}) — stopping. Progress so far is safe.`);
@@ -149,6 +154,18 @@ async function main() {
     }
   }
   await flush();
+
+  // Record this run's SerpApi spend so it shows up in the app's Usage tab.
+  if (!DRY_RUN) {
+    try {
+      await recordUsage({ step2: summary.searchCredits, step8: summary.checkCredits, source: 'automation' });
+      log(`Logged usage: ${summary.searchCredits} searches + ${summary.checkCredits} index checks = ${summary.searchCredits + summary.checkCredits} credits.`);
+    } catch (e) {
+      log(`usage log failed: ${e.message}`);
+    }
+  } else {
+    log(`(dry run) would log usage: ${summary.searchCredits} searches + ${summary.checkCredits} index checks.`);
+  }
 
   await setStatus({ state: 'idle', finishedAt: new Date().toISOString(), lastRun: summary });
 
