@@ -205,6 +205,7 @@ function DashboardV2({ active }) {
   const [error, setError] = useState(null);
   const [show, setShow] = useState({ site: true, seq: true, vb: true });
   const [hover, setHover] = useState(null);
+  const [range, setRange] = useState({ from: '', to: '' }); // period keys; '' = full span
 
   const load = useCallback((p) => {
     setLoading(true); setError(null);
@@ -214,6 +215,7 @@ function DashboardV2({ active }) {
       .finally(() => setLoading(false));
   }, []);
   useEffect(() => { if (active) load(period); }, [active, period, load]);
+  useEffect(() => { setRange({ from: '', to: '' }); }, [period]); // reset range when granularity changes
 
   const METRICS = [
     { id: 'site', label: 'Site', color: '#9cc049', rate: 'siteRate', tot: 'siteTotal', idx: 'siteIndexed' },
@@ -221,8 +223,12 @@ function DashboardV2({ active }) {
     { id: 'vb', label: 'Video Bridge', color: '#e0a05a', rate: 'vbRate', tot: 'vbTotal', idx: 'vbIndexed' },
   ];
   const pct = v => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
-  const periods = data?.periods || [];
+  const allPeriods = data?.periods || [];
+  const fromKey = range.from || allPeriods[0]?.key || '';
+  const toKey = range.to || allPeriods[allPeriods.length - 1]?.key || '';
+  const periods = allPeriods.filter(p => p.key >= fromKey && p.key <= toKey);
   const periodLabels = { week: 'Week', month: 'Month', quarter: '3-Month' };
+  const selStyle = { padding: '5px 8px', borderRadius: 6, border: '1px solid var(--accent-light-border)', background: 'transparent', color: 'inherit', fontSize: 12 };
 
   function Delta({ d }) {
     if (d == null) return <span style={{ color: MUTED }}>—</span>;
@@ -257,6 +263,20 @@ function DashboardV2({ active }) {
         </div>
       </div>
 
+      {allPeriods.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14, fontSize: 12, color: MUTED }}>
+          <span>From</span>
+          <select value={fromKey} onChange={e => setRange(r => ({ ...r, from: e.target.value }))} style={selStyle}>
+            {allPeriods.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+          <span>To</span>
+          <select value={toKey} onChange={e => setRange(r => ({ ...r, to: e.target.value }))} style={selStyle}>
+            {allPeriods.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+          <button onClick={() => setRange({ from: '', to: '' })} style={{ ...S.btnGhost, fontSize: 11, padding: '4px 8px' }}>All</button>
+        </div>
+      )}
+
       {loading && <div style={{ color: MUTED, fontSize: 13, padding: 12 }}>Loading…</div>}
       {error && <div style={{ fontSize: 12, color: 'var(--err-text)', background: 'var(--err-bg)', border: '1px solid var(--err-border)', borderRadius: 4, padding: '8px 10px' }}>{error}</div>}
 
@@ -265,8 +285,14 @@ function DashboardV2({ active }) {
       )}
 
       {!loading && !error && periods.length > 0 && (() => {
-        const a = data.averages || {};
-        const cmp = data.comparison;
+        const avg = sel => { const v = periods.map(sel).filter(x => x != null); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
+        const a = { siteRate: avg(p => p.siteRate), seqRate: avg(p => p.seqRate), vbRate: avg(p => p.vbRate) };
+        let cmp = null;
+        if (periods.length >= 2) {
+          const cur = periods[periods.length - 1], prev = periods[periods.length - 2];
+          const dl = (x, y) => (x != null && y != null ? x - y : null);
+          cmp = { current: cur, previous: prev, siteDelta: dl(cur.siteRate, prev.siteRate), seqDelta: dl(cur.seqRate, prev.seqRate), vbDelta: dl(cur.vbRate, prev.vbRate) };
+        }
         return (
           <>
             {/* average cards */}
