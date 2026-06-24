@@ -194,6 +194,200 @@ function presetRanges(preset, today, custom) {
 
 // DASHBOARD — reads every saved run back from the Google Sheet (our database)
 // and lets you filter the history by date range, site, category and index status.
+// New period-based dashboard: reads /api/dashboard (the Indexation History
+// aggregation) and shows a GSC-style trend chart + average cards + per-period
+// rate/count tables + period-over-period comparison, with a week/month/3-month
+// toggle. Supersedes the legacy Dashboard component below.
+function DashboardV2({ active }) {
+  const [period, setPeriod] = useState('week');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [show, setShow] = useState({ site: true, seq: true, vb: true });
+  const [hover, setHover] = useState(null);
+
+  const load = useCallback((p) => {
+    setLoading(true); setError(null);
+    fetch(`/api/dashboard?period=${p}`).then(r => r.json())
+      .then(d => { if (d.error) throw new Error(d.error); setData(d); })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+  useEffect(() => { if (active) load(period); }, [active, period, load]);
+
+  const METRICS = [
+    { id: 'site', label: 'Site', color: '#9cc049', rate: 'siteRate', tot: 'siteTotal', idx: 'siteIndexed' },
+    { id: 'seq', label: 'Sequoia', color: '#5aa9e6', rate: 'seqRate', tot: 'seqTotal', idx: 'seqIndexed' },
+    { id: 'vb', label: 'Video Bridge', color: '#e0a05a', rate: 'vbRate', tot: 'vbTotal', idx: 'vbIndexed' },
+  ];
+  const pct = v => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
+  const periods = data?.periods || [];
+  const periodLabels = { week: 'Week', month: 'Month', quarter: '3-Month' };
+
+  function Delta({ d }) {
+    if (d == null) return <span style={{ color: MUTED }}>—</span>;
+    const up = d >= 0;
+    return <span style={{ color: up ? 'var(--accent-strong)' : 'var(--err-text)', fontWeight: 600 }}>{up ? '▲' : '▼'} {(Math.abs(d) * 100).toFixed(1)} pts</span>;
+  }
+
+  // ---- chart geometry ----
+  const W = 760, H = 280, pL = 44, pR = 16, pT = 14, pB = 38;
+  const plotW = W - pL - pR, plotH = H - pT - pB;
+  const n = periods.length;
+  const xAt = i => (n <= 1 ? pL + plotW / 2 : pL + plotW * (i / (n - 1)));
+  const yAt = r => pT + plotH * (1 - Math.max(0, Math.min(1, r)));
+  const labelStep = n > 8 ? Math.ceil(n / 8) : 1;
+
+  return (
+    <div style={{ padding: '16px 14px' }}>
+      {/* header: title + period toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Indexation over time</div>
+          <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>From the Indexation History — only successfully-audited sites count toward the rates.</div>
+        </div>
+        <div style={{ display: 'flex', gap: 4, background: 'var(--bg-page, #1c1c1c)', padding: 3, borderRadius: 8 }}>
+          {['week', 'month', 'quarter'].map(p => (
+            <button key={p} onClick={() => setPeriod(p)}
+              style={{ ...S.btnGhost, padding: '6px 12px', fontSize: 12, fontWeight: period === p ? 700 : 500,
+                background: period === p ? ACCENT_LIGHT : 'transparent', color: period === p ? 'var(--accent-strong)' : MUTED, border: 'none' }}>
+              {periodLabels[p]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading && <div style={{ color: MUTED, fontSize: 13, padding: 12 }}>Loading…</div>}
+      {error && <div style={{ fontSize: 12, color: 'var(--err-text)', background: 'var(--err-bg)', border: '1px solid var(--err-border)', borderRadius: 4, padding: '8px 10px' }}>{error}</div>}
+
+      {!loading && !error && periods.length === 0 && (
+        <div style={{ color: MUTED, fontSize: 13, padding: 12 }}>No audited data yet for this view — it’ll fill in as runs complete.</div>
+      )}
+
+      {!loading && !error && periods.length > 0 && (() => {
+        const a = data.averages || {};
+        const cmp = data.comparison;
+        return (
+          <>
+            {/* average cards */}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+              {METRICS.map(m => (
+                <div key={m.id} style={{ ...S.statCard, minWidth: 150, borderTop: `3px solid ${m.color}` }}>
+                  <div style={S.statVal}>{pct(a[m.rate])}</div>
+                  <div style={S.statLabel}>{m.label} — {periods.length}-{periodLabels[period].toLowerCase()} avg</div>
+                </div>
+              ))}
+            </div>
+
+            {/* comparison */}
+            {cmp && (
+              <div style={{ fontSize: 13, color: TEXT, marginBottom: 14, padding: '8px 10px', background: BG_CARD, borderRadius: 6, border: '1px solid var(--accent-light-border)' }}>
+                <strong>{cmp.current.label}</strong> vs <strong>{cmp.previous.label}</strong>:{' '}
+                Site <Delta d={cmp.siteDelta} /> · Sequoia <Delta d={cmp.seqDelta} /> · Video Bridge <Delta d={cmp.vbDelta} />
+              </div>
+            )}
+
+            {/* legend toggles */}
+            <div style={{ display: 'flex', gap: 14, marginBottom: 6 }}>
+              {METRICS.map(m => (
+                <button key={m.id} onClick={() => setShow(s => ({ ...s, [m.id]: !s[m.id] }))}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', opacity: show[m.id] ? 1 : 0.4, fontSize: 12, color: TEXT }}>
+                  <span style={{ width: 12, height: 12, borderRadius: 3, background: m.color, display: 'inline-block' }} />
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            {/* GSC-style trend chart */}
+            <div style={{ ...S.statCard, padding: 8, marginBottom: 14 }}>
+              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }} onMouseLeave={() => setHover(null)}>
+                {[0, 0.25, 0.5, 0.75, 1].map(g => (
+                  <g key={g}>
+                    <line x1={pL} y1={yAt(g)} x2={W - pR} y2={yAt(g)} stroke="var(--accent-light-border)" strokeWidth="1" />
+                    <text x={pL - 6} y={yAt(g) + 3} textAnchor="end" fontSize="10" fill={MUTED}>{(g * 100).toFixed(0)}%</text>
+                  </g>
+                ))}
+                {METRICS.filter(m => show[m.id]).map(m => {
+                  const pts = periods.map((p, i) => ({ i, x: xAt(i), y: p[m.rate] != null ? yAt(p[m.rate]) : null })).filter(p => p.y != null);
+                  const path = pts.map((p, k) => `${k === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+                  return (
+                    <g key={m.id}>
+                      {pts.length > 1 && <path d={path} fill="none" stroke={m.color} strokeWidth="2" />}
+                      {pts.map(p => (
+                        <circle key={p.i} cx={p.x} cy={p.y} r={periods[p.i].inProgress ? 4 : 3}
+                          fill={periods[p.i].inProgress ? 'none' : m.color} stroke={m.color} strokeWidth={periods[p.i].inProgress ? 2 : 0} />
+                      ))}
+                    </g>
+                  );
+                })}
+                {periods.map((p, i) => (i % labelStep === 0 || i === n - 1) && (
+                  <text key={i} x={xAt(i)} y={H - pB + 16} textAnchor="middle" fontSize="9" fill={MUTED}>{p.label.replace('Week of ', '')}</text>
+                ))}
+                {/* hover bands + tooltip */}
+                {periods.map((p, i) => {
+                  const bw = n <= 1 ? plotW : plotW / (n - 1 || 1);
+                  return <rect key={i} x={xAt(i) - bw / 2} y={pT} width={bw} height={plotH} fill="transparent" onMouseEnter={() => setHover(i)} />;
+                })}
+                {hover != null && periods[hover] && (() => {
+                  const p = periods[hover]; const tx = Math.min(Math.max(xAt(hover) + 8, pL), W - 150); const ty = pT + 6;
+                  return (
+                    <g>
+                      <line x1={xAt(hover)} y1={pT} x2={xAt(hover)} y2={pT + plotH} stroke={MUTED} strokeWidth="1" strokeDasharray="3 3" />
+                      <rect x={tx} y={ty} width={140} height={74} rx="5" fill="var(--bg-card, #232323)" stroke="var(--accent-light-border)" />
+                      <text x={tx + 8} y={ty + 16} fontSize="10" fontWeight="700" fill={TEXT}>{p.label}{p.inProgress ? ' (in progress)' : ''}</text>
+                      {METRICS.map((m, k) => (
+                        <text key={m.id} x={tx + 8} y={ty + 32 + k * 13} fontSize="10" fill={m.color}>{m.label}: {pct(p[m.rate])}</text>
+                      ))}
+                    </g>
+                  );
+                })()}
+              </svg>
+            </div>
+
+            {/* per-period rate table */}
+            <div style={S.tableWrap}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr>{['Period', 'Coverage', 'Site', 'Sequoia', 'Video Bridge'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {[...periods].reverse().map(p => (
+                    <tr key={p.key}>
+                      <td style={{ ...S.td, fontWeight: 500 }}>{p.label}{p.inProgress && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>in progress</span>}</td>
+                      <td style={{ ...S.td, color: MUTED }}>{p.coverage.toLocaleString()}{data.libraryTotal ? ` / ${data.libraryTotal.toLocaleString()}` : ''}{p.coveragePct != null ? ` (${(p.coveragePct * 100).toFixed(0)}%)` : ''}</td>
+                      <td style={{ ...S.td, fontWeight: 600, color: '#9cc049' }}>{pct(p.siteRate)}</td>
+                      <td style={{ ...S.td, fontWeight: 600, color: '#5aa9e6' }}>{pct(p.seqRate)}</td>
+                      <td style={{ ...S.td, fontWeight: 600, color: '#e0a05a' }}>{pct(p.vbRate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* per-period counts table */}
+            <div style={{ ...S.tableWrap, marginTop: 14 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr>{['Period', 'Site Total', 'Site Indexed', 'Seq Total', 'Seq Indexed', 'VB Total', 'VB Indexed'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {[...periods].reverse().map(p => (
+                    <tr key={p.key}>
+                      <td style={{ ...S.td, fontWeight: 500 }}>{p.label}</td>
+                      <td style={{ ...S.td, textAlign: 'right' }}>{p.siteTotal.toLocaleString()}</td>
+                      <td style={{ ...S.td, textAlign: 'right' }}>{p.siteIndexed.toLocaleString()}</td>
+                      <td style={{ ...S.td, textAlign: 'right' }}>{p.seqTotal.toLocaleString()}</td>
+                      <td style={{ ...S.td, textAlign: 'right' }}>{p.seqIndexed.toLocaleString()}</td>
+                      <td style={{ ...S.td, textAlign: 'right' }}>{p.vbTotal.toLocaleString()}</td>
+                      <td style={{ ...S.td, textAlign: 'right' }}>{p.vbIndexed.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        );
+      })()}
+    </div>
+  );
+}
+
 function Dashboard({ active }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -1579,7 +1773,7 @@ export default function Home() {
                   })()}
 
                   {/* DASHBOARD TAB */}
-                  {activeTab === 'dashboard' && <Dashboard active={activeTab === 'dashboard'} />}
+                  {activeTab === 'dashboard' && <DashboardV2 active={activeTab === 'dashboard'} />}
 
                   {/* AUTOMATION TAB — background runner control panel */}
                   {activeTab === 'automation' && <AutomationPanel active={activeTab === 'automation'} />}
