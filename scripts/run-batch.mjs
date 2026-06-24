@@ -105,6 +105,7 @@ async function main() {
   const summary = { requested: domains.length, audited: 0, failed: 0, saved: 0, creditStop: null, failReasons: {}, searchCredits: 0, checkCredits: 0 };
   let rowBuf = [];
   let postBuf = [];
+  let loggedSearch = 0, loggedChecks = 0; // usage already recorded this run
 
   const flush = async () => {
     if (!rowBuf.length) return;
@@ -114,6 +115,15 @@ async function main() {
     rowBuf = [];
     postBuf = [];
     await setStatus({ audited: summary.audited, failed: summary.failed, saved: summary.saved });
+    // Record this chunk's SerpApi spend now, so a later cancel/crash can't lose it.
+    if (!DRY_RUN) {
+      const dS = summary.searchCredits - loggedSearch;
+      const dC = summary.checkCredits - loggedChecks;
+      if (dS > 0 || dC > 0) {
+        try { await recordUsage({ step2: dS, step8: dC, source: 'automation' }); loggedSearch = summary.searchCredits; loggedChecks = summary.checkCredits; }
+        catch (e) { log(`  usage log failed: ${e.message}`); }
+      }
+    }
   };
 
   for (const domain of domains) {
@@ -153,20 +163,9 @@ async function main() {
       }
     }
   }
-  await flush();
+  await flush(); // saves + logs usage for the final partial chunk
 
-  // Record this run's SerpApi spend so it shows up in the app's Usage tab.
-  if (!DRY_RUN) {
-    try {
-      await recordUsage({ step2: summary.searchCredits, step8: summary.checkCredits, source: 'automation' });
-      log(`Logged usage: ${summary.searchCredits} searches + ${summary.checkCredits} index checks = ${summary.searchCredits + summary.checkCredits} credits.`);
-    } catch (e) {
-      log(`usage log failed: ${e.message}`);
-    }
-  } else {
-    log(`(dry run) would log usage: ${summary.searchCredits} searches + ${summary.checkCredits} index checks.`);
-  }
-
+  log(`Total usage this run: ${summary.searchCredits} searches + ${summary.checkCredits} index checks = ${summary.searchCredits + summary.checkCredits} credits.`);
   await setStatus({ state: 'idle', finishedAt: new Date().toISOString(), lastRun: summary });
 
   log('--- DONE ---');
