@@ -6,10 +6,12 @@ name: Indexation Audit
 #  - workflow_dispatch:   manual "Run workflow" button (optional batch size).
 #  - repository_dispatch:  triggered by the in-app button (event type "run-audit").
 on:
-  # Daily schedule is intentionally disabled until setup is verified. After the
-  # first successful manual/in-app run, uncomment to turn on the autopilot:
-  # schedule:
-  #   - cron: '0 1 * * *'   # 01:00 UTC daily (~09:00 Manila)
+  # 3 runs/day, every 8 hours (~09:00, 17:00, 01:00 Manila). The runner splits
+  # the app's "Sites per day" across these (RUNS_PER_DAY below).
+  schedule:
+    - cron: '0 1 * * *'
+    - cron: '0 9 * * *'
+    - cron: '0 17 * * *'
   workflow_dispatch:
     inputs:
       batch_size:
@@ -49,10 +51,15 @@ jobs:
           GOOGLE_SALVAGE_TAB: ${{ secrets.GOOGLE_SALVAGE_TAB }}
           KV_REST_API_URL: ${{ secrets.KV_REST_API_URL }}
           KV_REST_API_TOKEN: ${{ secrets.KV_REST_API_TOKEN }}
-          # Manual "Run workflow" input overrides; otherwise the runner uses the
-          # "Sites per day" value set in the app (KV), falling back to 300.
+          # Manual "Run workflow" input overrides as an absolute per-run size;
+          # otherwise the runner takes the app's "Sites per day" (KV) and splits
+          # it across RUNS_PER_DAY runs.
           BATCH_SIZE: ${{ github.event.inputs.batch_size }}
-          CHUNK_SIZE: '25'
+          RUNS_PER_DAY: '3'
+          CHUNK_SIZE: '10'
+          # Skip sites already checked within this many days (so a finished pass
+          # idles instead of re-auditing fresh data and wasting credits).
+          FRESHNESS_DAYS: '25'
         run: |
           set -o pipefail
           node --no-warnings scripts/run-batch.mjs 2>&1 | tee run.log

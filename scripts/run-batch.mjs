@@ -40,13 +40,19 @@ if (fs.existsSync(envPath)) {
 const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE, 10) || 25;
 const DRY_RUN = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
 
-// Daily size: an explicit env BATCH_SIZE (e.g. a manual "Run workflow" input)
-// wins for one-off overrides; otherwise use the value set in the app (KV);
-// otherwise default 300.
+// How many sites THIS run should audit.
+//  - An explicit env BATCH_SIZE (e.g. a manual "Run workflow" input) wins as an
+//    absolute per-run override.
+//  - Otherwise: take the app's "Sites per day" (KV) and split it across the
+//    number of daily runs (RUNS_PER_DAY), so e.g. 600/day over 3 runs = 200 each.
+//    Because we always audit oldest-first, the 3 runs naturally cover 600
+//    distinct sites with no overlap.
 async function resolveBatchSize() {
   const envN = parseInt(process.env.BATCH_SIZE, 10);
   if (Number.isFinite(envN) && envN > 0) return envN;
-  return (await getBatchSize()) || 300;
+  const daily = (await getBatchSize()) || 300;
+  const runsPerDay = parseInt(process.env.RUNS_PER_DAY, 10) || 1;
+  return Math.max(1, Math.ceil(daily / runsPerDay));
 }
 
 const norm = s => String(s || '').trim().toLowerCase()
@@ -81,9 +87,18 @@ async function main() {
   }
 
   const BATCH_SIZE = await resolveBatchSize();
-  log(`Starting batch: up to ${BATCH_SIZE} sites, saving every ${CHUNK_SIZE}${DRY_RUN ? ' (DRY RUN)' : ''}.`);
-  const { domains, total } = await getTrackingSites({ limit: BATCH_SIZE });
-  log(`Pulled ${domains.length} least-recently-checked sites (of ${total} total).`);
+  const FRESHNESS_DAYS = parseInt(process.env.FRESHNESS_DAYS, 10) || 0;
+  log(`Starting batch: up to ${BATCH_SIZE} sites, saving every ${CHUNK_SIZE}${FRESHNESS_DAYS ? `, skipping sites checked in the last ${FRESHNESS_DAYS}d` : ''}${DRY_RUN ? ' (DRY RUN)' : ''}.`);
+  const { domains, total, eligible } = await getTrackingSites({ limit: BATCH_SIZE, freshDays: FRESHNESS_DAYS });
+
+  // Nothing stale enough to audit → the library is current; idle without spending.
+  if (domains.length === 0) {
+    log(`Nothing to audit — all ${total} sites already checked within the last ${FRESHNESS_DAYS} days. Idling.`);
+    await setStatus({ state: 'idle', finishedAt: new Date().toISOString(), note: `all fresh (≤${FRESHNESS_DAYS}d) — nothing to do` });
+    return;
+  }
+
+  log(`Pulled ${domains.length} of ${eligible} stale sites (of ${total} total).`);
   await setStatus({ state: 'running', startedAt: new Date().toISOString(), requested: domains.length, audited: 0, failed: 0, saved: 0, creditStop: null });
 
   const summary = { requested: domains.length, audited: 0, failed: 0, saved: 0, creditStop: null, failReasons: {} };
