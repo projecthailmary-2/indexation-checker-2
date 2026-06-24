@@ -34,7 +34,17 @@ export default async function handler(req, res) {
     if (!kvConfigured()) {
       return res.status(200).json({ configured: false, enabled: false, batchSize: 300, status: null });
     }
-    const [enabled, status, batchSize] = await Promise.all([isEnabled(), getStatus(), getBatchSize()]);
+    const [enabled, rawStatus, batchSize] = await Promise.all([isEnabled(), getStatus(), getBatchSize()]);
+    // Self-heal a stuck "running" status: if a run crashed/was cancelled without
+    // reporting back, its timestamp goes stale — treat it as idle so the controls
+    // don't stay locked. A live run refreshes its status every chunk (~minutes).
+    let status = rawStatus;
+    if (status?.state === 'running') {
+      const last = Date.parse(status.updatedAt || status.startedAt || '');
+      if (!Number.isFinite(last) || Date.now() - last > 15 * 60 * 1000) {
+        status = { ...status, state: 'idle', stale: true };
+      }
+    }
     return res.status(200).json({ configured: true, enabled, batchSize: batchSize || 300, status });
   }
 

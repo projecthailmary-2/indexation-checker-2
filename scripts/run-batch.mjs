@@ -160,4 +160,9 @@ async function main() {
     (summary.stoppedByUser ? ', STOPPED (by user)' : '') + '.');
 }
 
-main().catch(e => { console.error('Runner crashed:', e); process.exit(1); });
+main().catch(async (e) => {
+  console.error('Runner crashed:', e);
+  // Don't leave the status stuck on "running" — mark idle so the app unlocks.
+  try { await setStatus({ state: 'idle', finishedAt: new Date().toISOString(), note: `crashed: ${e.message}` }); } catch {}
+  process.exit(1);
+});
