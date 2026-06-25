@@ -314,7 +314,7 @@ function DashboardV2({ active }) {
                         <div style={{ height: 7, borderRadius: 4, background: 'var(--accent-light-border)', marginTop: 10, overflow: 'hidden' }}>
                           <div style={{ height: '100%', width: `${Math.max(0, Math.min(1, r || 0)) * 100}%`, background: m.color, borderRadius: 4 }} />
                         </div>
-                        <div style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>{periodLabels[period]} avg: <strong style={{ color: TEXT }}>{pct(a[m.rate])}</strong>{periods.length > 1 ? ` (${periods.length} ${periodLabels[period].toLowerCase()}s)` : ''}</div>
+                        {periods.length > 1 && <div style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>{periodLabels[period]} avg: <strong style={{ color: TEXT }}>{pct(a[m.rate])}</strong> ({periods.length} {periodLabels[period].toLowerCase()}s)</div>}
                       </div>
                     );
                   })}
