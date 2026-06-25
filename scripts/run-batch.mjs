@@ -51,9 +51,25 @@ const DRY_RUN = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
 async function resolveBatchSize() {
   const envN = parseInt(process.env.BATCH_SIZE, 10);
   if (Number.isFinite(envN) && envN > 0) return envN;
+  // Chain mode: each run does a fixed safe batch, then triggers the next.
+  if (process.env.CHAIN === 'true') return parseInt(process.env.CHAIN_BATCH, 10) || 500;
   const daily = (await getBatchSize()) || 300;
   const runsPerDay = parseInt(process.env.RUNS_PER_DAY, 10) || 1;
   return Math.max(1, Math.ceil(daily / runsPerDay));
+}
+
+// Self-chain: trigger the next run via repository_dispatch. Uses a PAT (GH_PAT)
+// because the default GITHUB_TOKEN is not allowed to start new workflow runs.
+async function triggerNextRun() {
+  const repo = process.env.GITHUB_REPOSITORY; // "owner/repo", auto-set in Actions
+  const token = process.env.GH_PAT;
+  if (!repo || !token) throw new Error('chain not configured (missing GH_PAT / GITHUB_REPOSITORY)');
+  const r = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event_type: 'run-audit' }),
+  });
+  if (!r.ok) { const b = await r.text().catch(() => ''); throw new Error(`dispatch ${r.status}: ${b.slice(0, 120)}`); }
 }
 
 const norm = s => String(s || '').trim().toLowerCase()
@@ -174,6 +190,18 @@ async function main() {
   console.log(`RESULT: audited ${summary.audited}, failed ${summary.failed}, saved ${summary.saved}` +
     (summary.creditStop ? `, STOPPED (${summary.creditStop})` : '') +
     (summary.stoppedByUser ? ', STOPPED (by user)' : '') + '.');
+
+  // Self-chaining: keep going until the whole library is refreshed. Trigger the
+  // next run only if sites still remain, we didn't stop, and we're still on.
+  if (process.env.CHAIN === 'true' && !DRY_RUN) {
+    const remaining = (eligible || 0) - summary.requested;
+    if (remaining > 0 && !summary.creditStop && !summary.stoppedByUser && (await isEnabled())) {
+      try { await triggerNextRun(); log(`Chain: ~${remaining} sites still to do — triggered the next run.`); }
+      catch (e) { log(`Chain: could not trigger next run — ${e.message}`); }
+    } else {
+      log(`Chain complete — ${remaining <= 0 ? 'library refreshed' : summary.creditStop ? 'out of credits' : summary.stoppedByUser ? 'stopped by user' : 'paused'}.`);
+    }
+  }
 }
 
 main().catch(async (e) => {

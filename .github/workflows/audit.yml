@@ -60,6 +60,12 @@ jobs:
           # Skip sites already checked within this many days (so a finished pass
           # idles instead of re-auditing fresh data and wasting credits).
           FRESHNESS_DAYS: '25'
+          # Self-chaining: each run audits CHAIN_BATCH sites then triggers the next
+          # (via GH_PAT) until the whole library is refreshed — so the 2nd/3rd/…
+          # runs don't depend on the flaky cron. Cron just kicks off the first one.
+          CHAIN: 'true'
+          CHAIN_BATCH: '500'
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           set -o pipefail
           node --no-warnings scripts/run-batch.mjs 2>&1 | tee run.log
