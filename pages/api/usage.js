@@ -1,6 +1,6 @@
 // pages/api/usage.js
 // Tracks SerpApi credit usage by BILLING CYCLE, not calendar month.
-// A cycle runs from the 26th of one month through the 25th of the next,
+// A cycle runs from the 27th of one month through the 26th of the next,
 // in Philippines time (Asia/Manila) — matching when the SerpApi plan renews.
 // GET  — returns the current cycle + past cycles (most recent first)
 // POST — records a completed run's credit usage into the current cycle
@@ -12,7 +12,7 @@ const redis = new Redis({
   token: process.env.KV_REST_API_TOKEN,
 });
 
-const CYCLE_START_DAY = 26;
+const CYCLE_START_DAY = 27;
 
 // Year / month (1-12) / day as seen in Philippines time.
 function phParts(date = new Date()) {
@@ -31,7 +31,7 @@ function cycleKey(date = new Date()) {
   return `cycle:${year}-${String(m0 + 1).padStart(2, '0')}`;
 }
 
-// Human label for a cycle key, e.g. "May 26 – Jun 25, 2026".
+// Human label for a cycle key, e.g. "May 27 – Jun 26, 2026".
 function cycleLabel(key) {
   const [y, m] = key.replace('cycle:', '').split('-').map(Number); // m = 1-12
   const start = new Date(Date.UTC(y, m - 1, CYCLE_START_DAY));
