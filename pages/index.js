@@ -1021,6 +1021,22 @@ export default function Home() {
   useEffect(() => {
     setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
   }, []);
+
+  // Remember which section/tab you were on so a page refresh returns you there
+  // instead of snapping back to the default (URL Index Checker / Tracker).
+  useEffect(() => {
+    try {
+      const sv = localStorage.getItem('ic2.section');
+      const tb = localStorage.getItem('ic2.tab');
+      if (sv && SECTION_TABS[sv]) {
+        setSection(sv);
+        setActiveTab(tb && SECTION_TABS[sv].includes(tb) ? tb : SECTION_TABS[sv][0]);
+      }
+    } catch (e) { /* private mode */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem('ic2.section', section); localStorage.setItem('ic2.tab', activeTab); } catch (e) { /* private mode */ }
+  }, [section, activeTab]);
   const toggleTheme = useCallback(() => {
     setTheme(prev => {
       const next = prev === 'dark' ? 'light' : 'dark';
