@@ -206,6 +206,8 @@ function DashboardV2({ active }) {
   const [show, setShow] = useState({ site: true, seq: true, vb: true });
   const [hover, setHover] = useState(null);
   const [range, setRange] = useState({ from: '', to: '' }); // period keys; '' = full span
+  const chartRef = useRef(null);
+  const [chartW, setChartW] = useState(900); // measured chart width so it fills the page
 
   const load = useCallback((p) => {
     setLoading(true); setError(null);
@@ -216,6 +218,18 @@ function DashboardV2({ active }) {
   }, []);
   useEffect(() => { if (active) load(period); }, [active, period, load]);
   useEffect(() => { setRange({ from: '', to: '' }); }, [period]); // reset range when granularity changes
+
+  // Measure the chart's container so the SVG fills the page width (left to right)
+  // at a fixed height, instead of being a small fixed-width box.
+  useEffect(() => {
+    const el = chartRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const update = () => setChartW(Math.max(320, el.clientWidth - 16)); // minus container padding
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [active, data, loading, error]);
 
   const METRICS = [
     { id: 'site', label: 'Site', color: '#9cc049', rate: 'siteRate', tot: 'siteTotal', idx: 'siteIndexed' },
@@ -237,7 +251,7 @@ function DashboardV2({ active }) {
   }
 
   // ---- chart geometry ----
-  const W = 760, H = 200, pL = 44, pR = 16, pT = 12, pB = 30;
+  const W = chartW, H = 240, pL = 44, pR = 16, pT = 12, pB = 30;
   const plotW = W - pL - pR, plotH = H - pT - pB;
   const n = periods.length;
   const xAt = i => (n <= 1 ? pL + plotW / 2 : pL + plotW * (i / (n - 1)));
@@ -341,9 +355,9 @@ function DashboardV2({ active }) {
               ))}
             </div>
 
-            {/* GSC-style trend chart */}
-            <div style={{ ...S.statCard, padding: 8, marginBottom: 10, maxWidth: 760 }}>
-              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }} onMouseLeave={() => setHover(null)}>
+            {/* GSC-style trend chart — fills the page width at a fixed height */}
+            <div ref={chartRef} style={{ ...S.statCard, padding: 8, marginBottom: 10 }}>
+              <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ width: '100%', height: H, display: 'block' }} onMouseLeave={() => setHover(null)}>
                 {[0, 0.25, 0.5, 0.75, 1].map(g => (
                   <g key={g}>
                     <line x1={pL} y1={yAt(g)} x2={W - pR} y2={yAt(g)} stroke="var(--accent-light-border)" strokeWidth="1" />
