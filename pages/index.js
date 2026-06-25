@@ -408,6 +408,34 @@ function DashboardV2({ active }) {
             </div>
             )}
 
+            {/* 3-month view: break each quarter into its months so you can see
+                the per-month detail behind the 3-month average. */}
+            {period === 'quarter' && periods.some(p => p.months && p.months.length) && (
+              <div style={{ marginTop: 14 }}>
+                {[...periods].reverse().filter(q => q.months && q.months.length).map(q => (
+                  <div key={q.key} style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, color: MUTED, marginBottom: 6 }}><strong style={{ color: TEXT }}>{q.label}</strong> — by month</div>
+                    <div style={S.tableWrap}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead><tr>{['Month', 'Coverage', 'Site', 'Sequoia', 'Video Bridge'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                        <tbody>
+                          {[...q.months].reverse().map(m => (
+                            <tr key={m.key}>
+                              <td style={{ ...S.td, fontWeight: 500 }}>{m.label}{m.inProgress && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>in progress</span>}</td>
+                              <td style={{ ...S.td, color: MUTED }}>{m.coverage.toLocaleString()}{data.libraryTotal ? ` / ${data.libraryTotal.toLocaleString()}` : ''}{m.coveragePct != null ? ` (${(m.coveragePct * 100).toFixed(0)}%)` : ''}</td>
+                              <td style={{ ...S.td, fontWeight: 600, color: '#9cc049' }}>{pct(m.siteRate)}</td>
+                              <td style={{ ...S.td, fontWeight: 600, color: '#5aa9e6' }}>{pct(m.seqRate)}</td>
+                              <td style={{ ...S.td, fontWeight: 600, color: '#e0a05a' }}>{pct(m.vbRate)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
           </>
         );
       })()}
