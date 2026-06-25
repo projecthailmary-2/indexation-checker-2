@@ -295,15 +295,32 @@ function DashboardV2({ active }) {
         }
         return (
           <>
-            {/* average cards */}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-              {METRICS.map(m => (
-                <div key={m.id} style={{ ...S.statCard, minWidth: 150, borderTop: `3px solid ${m.color}` }}>
-                  <div style={S.statVal}>{pct(a[m.rate])}</div>
-                  <div style={S.statLabel}>{m.label} — {periods.length}-{periodLabels[period].toLowerCase()} avg</div>
+            {/* latest-period metric cards (big rate + counts + bar; period avg as footnote) */}
+            {(() => { const latest = periods[periods.length - 1]; return (
+              <>
+                <div style={{ fontSize: 12, color: MUTED, marginBottom: 8 }}>
+                  Latest: <strong style={{ color: TEXT }}>{latest.label}</strong>
+                  {latest.inProgress && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>in progress</span>}
+                  {latest.coveragePct != null && <span style={{ marginLeft: 8 }}>· {latest.coverage.toLocaleString()}{data.libraryTotal ? ` of ${data.libraryTotal.toLocaleString()}` : ''} sites audited ({(latest.coveragePct * 100).toFixed(0)}%)</span>}
                 </div>
-              ))}
-            </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+                  {METRICS.map(m => {
+                    const r = latest[m.rate];
+                    return (
+                      <div key={m.id} style={{ ...S.statCard, borderTop: `3px solid ${m.color}`, padding: 14 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: MUTED }}>{m.label}</div>
+                        <div style={{ fontSize: 30, fontWeight: 700, color: m.color, marginTop: 4, lineHeight: 1.1 }}>{pct(r)}</div>
+                        <div style={{ fontSize: 12, color: MUTED, marginTop: 3 }}>{latest[m.idx].toLocaleString()} of {latest[m.tot].toLocaleString()} indexed</div>
+                        <div style={{ height: 7, borderRadius: 4, background: 'var(--accent-light-border)', marginTop: 10, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${Math.max(0, Math.min(1, r || 0)) * 100}%`, background: m.color, borderRadius: 4 }} />
+                        </div>
+                        <div style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>{periodLabels[period]} avg: <strong style={{ color: TEXT }}>{pct(a[m.rate])}</strong>{periods.length > 1 ? ` (${periods.length} ${periodLabels[period].toLowerCase()}s)` : ''}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ); })()}
 
             {/* comparison */}
             {cmp && (
@@ -388,25 +405,6 @@ function DashboardV2({ active }) {
               </table>
             </div>
 
-            {/* per-period counts table */}
-            <div style={{ ...S.tableWrap, marginTop: 14 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead><tr>{['Period', 'Site Total', 'Site Indexed', 'Seq Total', 'Seq Indexed', 'VB Total', 'VB Indexed'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {[...periods].reverse().map(p => (
-                    <tr key={p.key}>
-                      <td style={{ ...S.td, fontWeight: 500 }}>{p.label}</td>
-                      <td style={{ ...S.td, textAlign: 'right' }}>{p.siteTotal.toLocaleString()}</td>
-                      <td style={{ ...S.td, textAlign: 'right' }}>{p.siteIndexed.toLocaleString()}</td>
-                      <td style={{ ...S.td, textAlign: 'right' }}>{p.seqTotal.toLocaleString()}</td>
-                      <td style={{ ...S.td, textAlign: 'right' }}>{p.seqIndexed.toLocaleString()}</td>
-                      <td style={{ ...S.td, textAlign: 'right' }}>{p.vbTotal.toLocaleString()}</td>
-                      <td style={{ ...S.td, textAlign: 'right' }}>{p.vbIndexed.toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </>
         );
       })()}
