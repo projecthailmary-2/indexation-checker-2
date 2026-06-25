@@ -244,6 +244,11 @@ function DashboardV2({ active }) {
       <div style={{ fontSize: 11, color: MUTED, marginTop: 1 }}>{(row[m.idx] || 0).toLocaleString()} / {(row[m.tot] || 0).toLocaleString()}</div>
     </td>
   ));
+  // A finished period that audited under this share of the library is too small
+  // a sample to compare against, so we flag it (in-progress periods are labelled
+  // separately and excluded here).
+  const LOW_COV = 0.8;
+  const isLowCov = p => p && p.coveragePct != null && p.coveragePct < LOW_COV && !p.inProgress;
   const allPeriods = data?.periods || [];
   const fromKey = range.from || allPeriods[0]?.key || '';
   const toKey = range.to || allPeriods[allPeriods.length - 1]?.key || '';
@@ -335,21 +340,22 @@ function DashboardV2({ active }) {
                         <div style={{ height: 5, borderRadius: 4, background: 'var(--accent-light-border)', marginTop: 6, overflow: 'hidden' }}>
                           <div style={{ height: '100%', width: `${Math.max(0, Math.min(1, r || 0)) * 100}%`, background: m.color, borderRadius: 4 }} />
                         </div>
-                        {periods.length > 1 && <div style={{ fontSize: 10, color: MUTED, marginTop: 5 }}>{periodLabels[period]} avg: <strong style={{ color: TEXT }}>{pct(a[m.rate])}</strong> ({periods.length} {periodLabels[period].toLowerCase()}s)</div>}
+                        {cmp && (() => {
+                          const unreliable = isLowCov(cmp.previous) || isLowCov(cmp.current);
+                          return (
+                            <div style={{ fontSize: 10, color: MUTED, marginTop: 5 }}>
+                              <Delta d={cmp[m.id + 'Delta']} /> vs {cmp.previous.label} ({pct(cmp.previous[m.rate])})
+                              {unreliable && <span title="One of these periods covered too little of the library to be a reliable comparison." style={{ color: 'var(--warn-text)', marginLeft: 4, whiteSpace: 'nowrap' }}>⚠ low coverage</span>}
+                            </div>
+                          );
+                        })()}
+                        {periods.length > 1 && <div style={{ fontSize: 10, color: MUTED, marginTop: 3 }}>{periodLabels[period]} avg: <strong style={{ color: TEXT }}>{pct(a[m.rate])}</strong> ({periods.length} {periodLabels[period].toLowerCase()}s)</div>}
                       </div>
                     );
                   })}
                 </div>
               </>
             ); })()}
-
-            {/* comparison */}
-            {cmp && (
-              <div style={{ fontSize: 12, color: TEXT, marginBottom: 10, padding: '6px 10px', background: BG_CARD, borderRadius: 6, border: '1px solid var(--accent-light-border)' }}>
-                <strong>{cmp.current.label}</strong> vs <strong>{cmp.previous.label}</strong>:{' '}
-                Site <Delta d={cmp.siteDelta} /> · Sequoia <Delta d={cmp.seqDelta} /> · Video Bridge <Delta d={cmp.vbDelta} />
-              </div>
-            )}
 
             {/* legend toggles */}
             <div style={{ display: 'flex', gap: 14, marginBottom: 6 }}>
@@ -416,7 +422,7 @@ function DashboardV2({ active }) {
                   {[...periods].reverse().map(p => (
                     <tr key={p.key}>
                       <td style={{ ...S.td, fontWeight: 500 }}>{p.label}{p.inProgress && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>in progress</span>}</td>
-                      <td style={{ ...S.td, color: MUTED }}>{p.coverage.toLocaleString()}{data.libraryTotal ? ` / ${data.libraryTotal.toLocaleString()}` : ''}{p.coveragePct != null ? ` (${(p.coveragePct * 100).toFixed(0)}%)` : ''}</td>
+                      <td style={{ ...S.td, color: MUTED }}>{p.coverage.toLocaleString()}{data.libraryTotal ? ` / ${data.libraryTotal.toLocaleString()}` : ''}{p.coveragePct != null ? ` (${(p.coveragePct * 100).toFixed(0)}%)` : ''}{isLowCov(p) && <span title="Audited too little of the library to be a reliable number." style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>low coverage</span>}</td>
                       {metricCells(p)}
                     </tr>
                   ))}
@@ -438,7 +444,7 @@ function DashboardV2({ active }) {
                           {[...q.months].reverse().map(m => (
                             <tr key={m.key}>
                               <td style={{ ...S.td, fontWeight: 500 }}>{m.label}{m.inProgress && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>in progress</span>}</td>
-                              <td style={{ ...S.td, color: MUTED }}>{m.coverage.toLocaleString()}{data.libraryTotal ? ` / ${data.libraryTotal.toLocaleString()}` : ''}{m.coveragePct != null ? ` (${(m.coveragePct * 100).toFixed(0)}%)` : ''}</td>
+                              <td style={{ ...S.td, color: MUTED }}>{m.coverage.toLocaleString()}{data.libraryTotal ? ` / ${data.libraryTotal.toLocaleString()}` : ''}{m.coveragePct != null ? ` (${(m.coveragePct * 100).toFixed(0)}%)` : ''}{isLowCov(m) && <span title="Audited too little of the library to be a reliable number." style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>low coverage</span>}</td>
                               {metricCells(m)}
                             </tr>
                           ))}
