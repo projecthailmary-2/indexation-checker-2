@@ -232,7 +232,7 @@ function DashboardV2({ active }) {
   }, [active, data, loading, error]);
 
   const METRICS = [
-    { id: 'site', label: 'Site', color: '#9cc049', rate: 'siteRate', tot: 'siteTotal', idx: 'siteIndexed' },
+    { id: 'site', label: 'Site', color: '#b07ae8', rate: 'siteRate', tot: 'siteTotal', idx: 'siteIndexed' },
     { id: 'seq', label: 'Sequoia', color: '#5aa9e6', rate: 'seqRate', tot: 'seqTotal', idx: 'seqIndexed' },
     { id: 'vb', label: 'Video Bridge', color: '#e0a05a', rate: 'vbRate', tot: 'vbTotal', idx: 'vbIndexed' },
   ];
