@@ -237,7 +237,7 @@ function DashboardV2({ active }) {
   }
 
   // ---- chart geometry ----
-  const W = 760, H = 280, pL = 44, pR = 16, pT = 14, pB = 38;
+  const W = 760, H = 200, pL = 44, pR = 16, pT = 12, pB = 30;
   const plotW = W - pL - pR, plotH = H - pT - pB;
   const n = periods.length;
   const xAt = i => (n <= 1 ? pL + plotW / 2 : pL + plotW * (i / (n - 1)));
@@ -245,12 +245,12 @@ function DashboardV2({ active }) {
   const labelStep = n > 8 ? Math.ceil(n / 8) : 1;
 
   return (
-    <div style={{ padding: '16px 14px' }}>
+    <div style={{ padding: '10px 14px' }}>
       {/* header: title + period toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Indexation over time</div>
-          <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>From the Indexation History — only successfully-audited sites count toward the rates.</div>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Indexation over time</div>
+          <div style={{ fontSize: 11, color: MUTED, marginTop: 1 }}>From the Indexation History — only successfully-audited sites count toward the rates.</div>
         </div>
         <div style={{ display: 'flex', gap: 4, background: 'var(--bg-page, #1c1c1c)', padding: 3, borderRadius: 8 }}>
           {['week', 'month', 'quarter'].map(p => (
@@ -264,7 +264,7 @@ function DashboardV2({ active }) {
       </div>
 
       {allPeriods.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14, fontSize: 12, color: MUTED }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10, fontSize: 12, color: MUTED }}>
           <span>From</span>
           <select value={fromKey} onChange={e => setRange(r => ({ ...r, from: e.target.value }))} style={selStyle}>
             {allPeriods.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
@@ -298,23 +298,23 @@ function DashboardV2({ active }) {
             {/* latest-period metric cards (big rate + counts + bar; period avg as footnote) */}
             {(() => { const latest = periods[periods.length - 1]; return (
               <>
-                <div style={{ fontSize: 12, color: MUTED, marginBottom: 8 }}>
+                <div style={{ fontSize: 12, color: MUTED, marginBottom: 6 }}>
                   Latest: <strong style={{ color: TEXT }}>{latest.label}</strong>
                   {latest.inProgress && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>in progress</span>}
                   {latest.coveragePct != null && <span style={{ marginLeft: 8 }}>· {latest.coverage.toLocaleString()}{data.libraryTotal ? ` of ${data.libraryTotal.toLocaleString()}` : ''} sites audited ({(latest.coveragePct * 100).toFixed(0)}%)</span>}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 10 }}>
                   {METRICS.map(m => {
                     const r = latest[m.rate];
                     return (
-                      <div key={m.id} style={{ ...S.statCard, borderTop: `3px solid ${m.color}`, padding: 14 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: MUTED }}>{m.label}</div>
-                        <div style={{ fontSize: 30, fontWeight: 700, color: m.color, marginTop: 4, lineHeight: 1.1 }}>{pct(r)}</div>
-                        <div style={{ fontSize: 12, color: MUTED, marginTop: 3 }}>{latest[m.idx].toLocaleString()} of {latest[m.tot].toLocaleString()} indexed</div>
-                        <div style={{ height: 7, borderRadius: 4, background: 'var(--accent-light-border)', marginTop: 10, overflow: 'hidden' }}>
+                      <div key={m.id} style={{ ...S.statCard, borderTop: `3px solid ${m.color}`, padding: '8px 12px' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: MUTED }}>{m.label}</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: m.color, marginTop: 1, lineHeight: 1.1 }}>{pct(r)}</div>
+                        <div style={{ fontSize: 11, color: MUTED, marginTop: 1 }}>{latest[m.idx].toLocaleString()} of {latest[m.tot].toLocaleString()} indexed</div>
+                        <div style={{ height: 5, borderRadius: 4, background: 'var(--accent-light-border)', marginTop: 6, overflow: 'hidden' }}>
                           <div style={{ height: '100%', width: `${Math.max(0, Math.min(1, r || 0)) * 100}%`, background: m.color, borderRadius: 4 }} />
                         </div>
-                        {periods.length > 1 && <div style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>{periodLabels[period]} avg: <strong style={{ color: TEXT }}>{pct(a[m.rate])}</strong> ({periods.length} {periodLabels[period].toLowerCase()}s)</div>}
+                        {periods.length > 1 && <div style={{ fontSize: 10, color: MUTED, marginTop: 5 }}>{periodLabels[period]} avg: <strong style={{ color: TEXT }}>{pct(a[m.rate])}</strong> ({periods.length} {periodLabels[period].toLowerCase()}s)</div>}
                       </div>
                     );
                   })}
@@ -324,7 +324,7 @@ function DashboardV2({ active }) {
 
             {/* comparison */}
             {cmp && (
-              <div style={{ fontSize: 13, color: TEXT, marginBottom: 14, padding: '8px 10px', background: BG_CARD, borderRadius: 6, border: '1px solid var(--accent-light-border)' }}>
+              <div style={{ fontSize: 12, color: TEXT, marginBottom: 10, padding: '6px 10px', background: BG_CARD, borderRadius: 6, border: '1px solid var(--accent-light-border)' }}>
                 <strong>{cmp.current.label}</strong> vs <strong>{cmp.previous.label}</strong>:{' '}
                 Site <Delta d={cmp.siteDelta} /> · Sequoia <Delta d={cmp.seqDelta} /> · Video Bridge <Delta d={cmp.vbDelta} />
               </div>
@@ -342,7 +342,7 @@ function DashboardV2({ active }) {
             </div>
 
             {/* GSC-style trend chart */}
-            <div style={{ ...S.statCard, padding: 8, marginBottom: 14 }}>
+            <div style={{ ...S.statCard, padding: 8, marginBottom: 10, maxWidth: 760 }}>
               <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }} onMouseLeave={() => setHover(null)}>
                 {[0, 0.25, 0.5, 0.75, 1].map(g => (
                   <g key={g}>
