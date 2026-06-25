@@ -387,7 +387,9 @@ function DashboardV2({ active }) {
               </svg>
             </div>
 
-            {/* per-period rate table */}
+            {/* per-period rate table — only useful once there are 2+ periods to
+                compare; with a single period it just repeats the cards above. */}
+            {periods.length > 1 && (
             <div style={S.tableWrap}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr>{['Period', 'Coverage', 'Site', 'Sequoia', 'Video Bridge'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
@@ -404,6 +406,7 @@ function DashboardV2({ active }) {
                 </tbody>
               </table>
             </div>
+            )}
 
           </>
         );
