@@ -3,7 +3,7 @@
 // period-aggregated indexation data (rates, counts, coverage, averages,
 // period-over-period comparison) for the Dashboard.
 
-import { sheetsConfigured, readTab, getTrackingSites } from '../../lib/sheets';
+import { sheetsConfigured, readTab, getTrackingSites, normDomain } from '../../lib/sheets';
 import { aggregateHistory } from '../../lib/dashboard';
 
 const HISTORY_TAB = process.env.GOOGLE_HISTORY_TAB || 'Indexation History';
@@ -17,11 +17,24 @@ export default async function handler(req, res) {
     const period = ['week', 'month', 'quarter'].includes(req.query.period) ? req.query.period : 'week';
     const rows = await readTab(HISTORY_TAB);
 
-    // Library size powers the coverage % (how complete each period is).
+    // Scope every number to the "auditable library" — Live + Down-Quarantined
+    // sites (Tracker Status col P). "Down - Not in Quarantine" sites are dropped
+    // from both the coverage denominator and the rates. libraryTotal powers the
+    // coverage % (how complete each period is).
     let libraryTotal = 0;
-    try { libraryTotal = (await getTrackingSites({ limit: 0 })).total || 0; } catch { /* non-fatal */ }
+    let scopedRows = rows;
+    try {
+      const t = await getTrackingSites({ limit: 0 });
+      const allow = new Set(t.auditableDomains || []);
+      if (allow.size) {
+        scopedRows = rows.filter(r => allow.has(normDomain(r['Domain'])));
+        libraryTotal = t.auditableTotal || allow.size;
+      } else {
+        libraryTotal = t.total || 0; // Status column missing → whole library
+      }
+    } catch { /* non-fatal: leave rows unscoped, coverage just won't show */ }
 
-    const result = aggregateHistory(rows, { period, libraryTotal });
+    const result = aggregateHistory(scopedRows, { period, libraryTotal });
     return res.status(200).json(result);
   } catch (e) {
     return res.status(500).json({ error: `Could not load dashboard data: ${e.message}` });
