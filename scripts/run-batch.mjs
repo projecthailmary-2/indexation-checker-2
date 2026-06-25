@@ -206,6 +206,9 @@ async function main() {
 
 main().catch(async (e) => {
   console.error('Runner crashed:', e);
+  // Surface a short reason for the workflow to forward to Slack (so the alert
+  // says *what* broke instead of a bare "failure").
+  console.log(`RESULT: CRASHED — ${e.message || e}`);
   // Don't leave the status stuck on "running" — mark idle so the app unlocks.
   try { await setStatus({ state: 'idle', finishedAt: new Date().toISOString(), note: `crashed: ${e.message}` }); } catch {}
   process.exit(1);

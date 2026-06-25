@@ -84,6 +84,7 @@ jobs:
           if [ "$JOB_STATUS" = "success" ]; then
             TEXT="✅ Indexation audit finished — ${RESULT:-done}. <${RUN_URL}|view run>"
           else
-            TEXT="⚠️ Indexation audit ${JOB_STATUS} — <${RUN_URL}|view logs>"
+            # Include the crash reason if the runner managed to report one.
+            TEXT="⚠️ Indexation audit ${JOB_STATUS}${RESULT:+ — ${RESULT}} <${RUN_URL}|view logs>"
           fi
           jq -n --arg t "$TEXT" '{text:$t}' | curl -s -X POST -H 'Content-type: application/json' -d @- "$SLACK_WEBHOOK_URL"
