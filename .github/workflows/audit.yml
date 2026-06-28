@@ -72,19 +72,18 @@ jobs:
           RESULT="$(grep '^RESULT:' run.log | tail -1 || true)"
           echo "result=${RESULT:-RESULT: (no summary — see logs)}" >> "$GITHUB_OUTPUT"
 
-      - name: Notify Slack
-        if: always()
+      # Only ping Slack when something actually FAILED. Successful runs — including
+      # ones that skip because automation is off, or stop cleanly on credits —
+      # stay silent, so the channel isn't spammed on every scheduled trigger.
+      - name: Notify Slack on failure
+        if: failure()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          RESULT: ${{ steps.run.outputs.result }}
-          JOB_STATUS: ${{ job.status }}
         run: |
           [ -z "$SLACK_WEBHOOK_URL" ] && { echo "No Slack webhook configured; skipping notification."; exit 0; }
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ "$JOB_STATUS" = "success" ]; then
-            TEXT="✅ Indexation audit finished — ${RESULT:-done}. <${RUN_URL}|view run>"
-          else
-            # Include the crash reason if the runner managed to report one.
-            TEXT="⚠️ Indexation audit ${JOB_STATUS}${RESULT:+ — ${RESULT}} <${RUN_URL}|view logs>"
-          fi
+          # Read the reason straight from the log — the run step may abort before
+          # it can export an output, so don't rely on steps.run.outputs.
+          REASON="$(grep '^RESULT:' run.log 2>/dev/null | tail -1 || true)"
+          TEXT="⚠️ Indexation audit failed${REASON:+ — ${REASON}} <${RUN_URL}|view logs>"
           jq -n --arg t "$TEXT" '{text:$t}' | curl -s -X POST -H 'Content-type: application/json' -d @- "$SLACK_WEBHOOK_URL"
