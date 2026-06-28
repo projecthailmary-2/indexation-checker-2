@@ -72,18 +72,25 @@ jobs:
           RESULT="$(grep '^RESULT:' run.log | tail -1 || true)"
           echo "result=${RESULT:-RESULT: (no summary — see logs)}" >> "$GITHUB_OUTPUT"
 
-      # Only ping Slack when something actually FAILED. Successful runs — including
-      # ones that skip because automation is off, or stop cleanly on credits —
-      # stay silent, so the channel isn't spammed on every scheduled trigger.
-      - name: Notify Slack on failure
-        if: failure()
+      # Ping Slack only when there's something to act on: a genuine failure, OR a
+      # clean stop because SerpApi ran out of credits / the key is invalid.
+      # Plain successful runs and skipped (automation-off) runs stay silent.
+      - name: Notify Slack
+        if: always()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           [ -z "$SLACK_WEBHOOK_URL" ] && { echo "No Slack webhook configured; skipping notification."; exit 0; }
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          # Read the reason straight from the log — the run step may abort before
-          # it can export an output, so don't rely on steps.run.outputs.
-          REASON="$(grep '^RESULT:' run.log 2>/dev/null | tail -1 || true)"
-          TEXT="⚠️ Indexation audit failed${REASON:+ — ${REASON}} <${RUN_URL}|view logs>"
+          # Reason comes straight from the log — the run step can abort before it
+          # exports an output, so don't rely on steps.run.outputs.
+          RAW="$(grep '^RESULT:' run.log 2>/dev/null | tail -1 || true)"
+          REASON="${RAW#RESULT: }"
+          if [ "$JOB_STATUS" != "success" ]; then
+            TEXT="⚠️ Indexation audit failed${REASON:+ — ${REASON}}"
+          elif echo "$RAW" | grep -qiE 'STOPPED \((No Credits|Invalid Key)\)'; then
+            TEXT="💳 Indexation audit stopped early — ${REASON}"
+          else
+            echo "Clean run — nothing to report."; exit 0
+          fi
           jq -n --arg t "$TEXT" '{text:$t}' | curl -s -X POST -H 'Content-type: application/json' -d @- "$SLACK_WEBHOOK_URL"
