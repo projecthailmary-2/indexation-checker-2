@@ -6,12 +6,15 @@ name: Indexation Audit
 #  - workflow_dispatch:   manual "Run workflow" button (optional batch size).
 #  - repository_dispatch:  triggered by the in-app button (event type "run-audit").
 on:
+  # SCHEDULE PAUSED 2026-06-26 (weekend archive + Monday re-audit prep). Nothing
+  # fires on a timer until this is re-enabled. Manual "Run a batch now"
+  # (repository_dispatch) and the "Run workflow" button still work.
   # 3 runs/day, 3 hours apart (06:00 / 09:00 / 12:00 Manila). The runner splits
   # the app's "Sites per day" across these (RUNS_PER_DAY below).
-  schedule:
-    - cron: '0 22 * * *'  # 06:00 Manila (22:00 UTC prev day)
-    - cron: '0 1 * * *'   # 09:00 Manila
-    - cron: '0 4 * * *'   # 12:00 Manila
+  # schedule:
+  #   - cron: '0 22 * * *'  # 06:00 Manila (22:00 UTC prev day)
+  #   - cron: '0 1 * * *'   # 09:00 Manila
+  #   - cron: '0 4 * * *'   # 12:00 Manila
   workflow_dispatch:
     inputs:
       batch_size:
