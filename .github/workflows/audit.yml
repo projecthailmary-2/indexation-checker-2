@@ -62,7 +62,10 @@ jobs:
           CHUNK_SIZE: '10'
           # Skip sites already checked within this many days (so a finished pass
           # idles instead of re-auditing fresh data and wasting credits).
-          FRESHNESS_DAYS: '25'
+          # Temporarily 2 (not 25) to FORCE a full re-audit of the whole library
+          # under the new 3-month window + accuracy fixes. Restore to the steady
+          # cadence value once this pass completes (NOT 0 — 0 chains forever).
+          FRESHNESS_DAYS: '2'
           # Self-chaining: each run audits CHAIN_BATCH sites then triggers the next
           # (via GH_PAT) until the whole library is refreshed — so the 2nd/3rd/…
           # runs don't depend on the flaky cron. Cron just kicks off the first one.
