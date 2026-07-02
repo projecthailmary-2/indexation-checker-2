@@ -6,15 +6,13 @@ name: Indexation Audit
 #  - workflow_dispatch:   manual "Run workflow" button (optional batch size).
 #  - repository_dispatch:  triggered by the in-app button (event type "run-audit").
 on:
-  # SCHEDULE PAUSED 2026-06-26 (weekend archive + Monday re-audit prep). Nothing
-  # fires on a timer until this is re-enabled. Manual "Run a batch now"
-  # (repository_dispatch) and the "Run workflow" button still work.
-  # 3 runs/day, 3 hours apart (06:00 / 09:00 / 12:00 Manila). The runner splits
-  # the app's "Sites per day" across these (RUNS_PER_DAY below).
-  # schedule:
-  #   - cron: '0 22 * * *'  # 06:00 Manila (22:00 UTC prev day)
-  #   - cron: '0 1 * * *'   # 09:00 Manila
-  #   - cron: '0 4 * * *'   # 12:00 Manila
+  # Weekly one-burst pass: fires Mon–Thu at 6am Manila (22:00 UTC the prior day).
+  # Monday's run kicks the full re-audit (chains through the whole library, ~<1
+  # day); Tue–Thu are safety nets — they resume the chain if it broke, otherwise
+  # everything is fresh and they idle. Nothing runs Fri–Sun, leaving Thu EOD → Fri
+  # for reviewing the data. Cadence is set by FRESHNESS_DAYS (5) below.
+  schedule:
+    - cron: '0 22 * * 0-3'  # Sun–Wed 22:00 UTC = Mon–Thu 06:00 Manila
   workflow_dispatch:
     inputs:
       batch_size:
@@ -62,10 +60,10 @@ jobs:
           CHUNK_SIZE: '10'
           # Skip sites already checked within this many days (so a finished pass
           # idles instead of re-auditing fresh data and wasting credits).
-          # Temporarily 2 (not 25) to FORCE a full re-audit of the whole library
-          # under the new 3-month window + accuracy fixes. Restore to the steady
-          # cadence value once this pass completes (NOT 0 — 0 chains forever).
-          FRESHNESS_DAYS: '2'
+          # Weekly cadence: re-audit sites older than 5 days. On Monday the whole
+          # prior-week library is stale → full pass; Tue–Thu it's all fresh → idle
+          # (so no wasteful mid-week re-audits, and Thu can't redo Monday's work).
+          FRESHNESS_DAYS: '5'
           # Self-chaining: each run audits CHAIN_BATCH sites then triggers the next
           # (via GH_PAT) until the whole library is refreshed — so the 2nd/3rd/…
           # runs don't depend on the flaky cron. Cron just kicks off the first one.
