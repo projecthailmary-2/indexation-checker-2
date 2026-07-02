@@ -20,19 +20,21 @@ async function main() {
   if (!WEBHOOK) { console.log('No SLACK_WEBHOOK_URL configured — skipping.'); return; }
 
   const rows = await readTab(HISTORY_TAB);
-  let auditableTotal = 2734;
-  try { auditableTotal = (await getTrackingSites({ limit: 0 })).auditableTotal || auditableTotal; } catch { /* fall back */ }
+  let auditableTotal = 2734, allow = null;
+  try { const t = await getTrackingSites({ limit: 0 }); auditableTotal = t.auditableTotal || auditableTotal; allow = new Set(t.auditableDomains || []); } catch { /* fall back */ }
+  const inScope = dom => !allow || !allow.size || allow.has(dom); // only auditable sites (matches the dashboard)
 
   // "Audited today" = rows stamped with today's date (the runner writes dates in
   // the action's UTC clock, so match that here).
   const t = new Date();
   const todayStr = `${t.getMonth() + 1}/${t.getDate()}/${t.getFullYear()}`;
-  const auditedToday = rows.filter(r => String(r['Date']).trim() === todayStr).length;
+  const auditedToday = rows.filter(r => String(r['Date']).trim() === todayStr && inScope(normDomain(r['Domain']))).length;
 
-  // Dedupe to the latest row per domain for the standing totals/rates.
+  // Dedupe to the latest row per domain for the standing totals/rates — scoped to
+  // the auditable library (excludes e.g. Down-Not-in-Quarantine sites).
   const latest = new Map();
   for (const r of rows) {
-    const dom = normDomain(r['Domain']); if (!dom) continue;
+    const dom = normDomain(r['Domain']); if (!dom || !inScope(dom)) continue;
     const cur = latest.get(dom);
     if (!cur || new Date(r['Date']) >= new Date(cur['Date'])) latest.set(dom, r);
   }
