@@ -64,10 +64,13 @@ async function triggerNextRun() {
   const repo = process.env.GITHUB_REPOSITORY; // "owner/repo", auto-set in Actions
   const token = process.env.GH_PAT;
   if (!repo || !token) throw new Error('chain not configured (missing GH_PAT / GITHUB_REPOSITORY)');
+  // Carry the freshness override through the chain, so a one-off forced pass
+  // (e.g. freshness_days=2) stays in effect across all chained runs instead of
+  // reverting to the scheduled default on the 2nd run.
   const r = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ event_type: 'run-audit' }),
+    body: JSON.stringify({ event_type: 'run-audit', client_payload: { freshness_days: process.env.FRESHNESS_DAYS || '' } }),
   });
   if (!r.ok) { const b = await r.text().catch(() => ''); throw new Error(`dispatch ${r.status}: ${b.slice(0, 120)}`); }
 }
