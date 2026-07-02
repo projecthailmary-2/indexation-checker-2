@@ -58,7 +58,7 @@ ${phLabel()} · 10:00 PM PH
 • Total: *${ok.toLocaleString()}* audited · *${failed.toLocaleString()}* failed
 
 *Current indexation rates*
-• Site: *${pct(siteI, siteT)}*  _(rough estimate — site: count)_
+• Site: *${pct(siteI, siteT)}*
 • Sequoia: *${pct(seqI, seqT)}*  (${seqI.toLocaleString()} / ${seqT.toLocaleString()})
 • Video Bridge: *${pct(vbI, vbT)}*  (${vbI.toLocaleString()} / ${vbT.toLocaleString()})`;
 
