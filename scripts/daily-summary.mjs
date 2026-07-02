@@ -41,7 +41,10 @@ async function main() {
   for (const r of latest.values()) {
     if (String(r['Status'] || '').toUpperCase() === 'OK') {
       ok++;
-      siteT += num(r['Total Post']); siteI += num(r['Total Indexed']);
+      // Clamp site-wide indexed at the post count — the `site:` estimate can
+      // return a garbage value (billions) that otherwise breaks the pooled rate.
+      const post = num(r['Total Post']);
+      siteT += post; siteI += Math.min(num(r['Total Indexed']), post);
       seqT += num(r['Seq Total']); seqI += num(r['Seq Indexed']);
       vbT += num(r['VB Total']); vbI += num(r['VB Indexed']);
     } else failed++;
