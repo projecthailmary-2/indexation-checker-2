@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
 import { auditDomain } from '../lib/audit.js';
 import {
   sheetsConfigured, getTrackingSites,
-  writeTrackingResults, appendIndexationHistory, appendSalvagePosts, appendSequoiaLog,
+  writeTrackingResults, appendIndexationHistory, appendSalvagePosts, appendSequoiaLog, appendVideoBridgeLog,
 } from '../lib/sheets.js';
 import { isEnabled, setStatus, getBatchSize } from '../lib/runnerState.js';
 import { recordUsage } from '../lib/usage.js';
@@ -91,10 +91,10 @@ async function saveChunk(rows, posts) {
     .filter(p => p.taskType === 'Sequoia' && p.indexStatus === 'Unindexed')
     .map(p => ({ ...p, priorityScore: prio[norm(p.domain)] }));
   try { await appendSalvagePosts(salvage); } catch (e) { log(`  salvage append failed: ${e.message}`); }
-  // Full Sequoia audit log — every Sequoia post (indexed + unindexed) for manual
-  // accuracy checking (classification + indexation verdict).
-  const seqLog = posts.filter(p => p.taskType === 'Sequoia');
-  try { await appendSequoiaLog(seqLog); } catch (e) { log(`  sequoia log append failed: ${e.message}`); }
+  // Full Sequoia + Video Bridge audit logs — every post (indexed + unindexed)
+  // for manual accuracy checking (classification + indexation verdict).
+  try { await appendSequoiaLog(posts.filter(p => p.taskType === 'Sequoia')); } catch (e) { log(`  sequoia log append failed: ${e.message}`); }
+  try { await appendVideoBridgeLog(posts.filter(p => p.taskType === 'Video Bridge')); } catch (e) { log(`  VB log append failed: ${e.message}`); }
 }
 
 async function main() {
