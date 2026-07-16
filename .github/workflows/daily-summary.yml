@@ -3,8 +3,10 @@ name: Daily Summary
 # Posts an indexation summary to Slack once a day at 10pm Manila, and can be run
 # on demand via the "Run workflow" button. Separate from the audit runner.
 on:
-  schedule:
-    - cron: '0 14 * * *'   # 22:00 Manila (14:00 UTC)
+  # PAUSED 2026-07-15 (Nate) — nightly Slack summary silenced for now.
+  # To resume: uncomment the schedule block below.
+  # schedule:
+  #   - cron: '0 14 * * *'   # 22:00 Manila (14:00 UTC)
   workflow_dispatch: {}
 
 jobs:

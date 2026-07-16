@@ -83,7 +83,8 @@ jobs:
       # clean stop because SerpApi ran out of credits / the key is invalid.
       # Plain successful runs and skipped (automation-off) runs stay silent.
       - name: Notify Slack
-        if: always()
+        # PAUSED 2026-07-15 (Nate) — Slack alerts silenced for now. Restore: if: always()
+        if: false
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           JOB_STATUS: ${{ job.status }}
