@@ -253,6 +253,10 @@ function DashboardV2({ active }) {
       <div style={{ fontSize: full ? 10 : 11, fontWeight: 700, color: color || MUTED, textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: 1.25, whiteSpace: full ? 'normal' : 'nowrap', maxWidth: full ? 200 : undefined }}>{full || short}</div>
     </th>
   );
+  // Coverage % — print "100%" ONLY when the library is genuinely complete; otherwise
+  // cap at 99.9% so rounding can never imply full coverage (e.g. 2,721/2,734 = 99.5%,
+  // which .toFixed(0) used to round up to a misleading "100%").
+  const covPct = (cov, tot) => (!tot ? null : cov >= tot ? '100%' : `${Math.min((cov / tot) * 100, 99.9).toFixed(1)}%`);
   const pct = v => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
   // Render the three metric cells (% on top, raw count underneath) for a row.
   const metricCells = (row) => METRICS.map(m => (
@@ -344,7 +348,7 @@ function DashboardV2({ active }) {
                 <div style={{ fontSize: 12, color: MUTED, marginBottom: 6 }}>
                   Latest: <strong style={{ color: TEXT }}>{latest.label}</strong>
                   {latest.inProgress && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>in progress</span>}
-                  {latest.coveragePct != null && <span style={{ marginLeft: 8 }}>· {latest.coverage.toLocaleString()}{data.libraryTotal ? ` of ${data.libraryTotal.toLocaleString()}` : ''} sites audited ({(latest.coveragePct * 100).toFixed(0)}%)</span>}
+                  {latest.coveragePct != null && <span style={{ marginLeft: 8 }}>· {latest.coverage.toLocaleString()}{data.libraryTotal ? ` of ${data.libraryTotal.toLocaleString()}` : ''} sites audited ({covPct(latest.coverage, data.libraryTotal)})</span>}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 10 }}>
                   {METRICS.map(m => {
@@ -439,7 +443,7 @@ function DashboardV2({ active }) {
                   {[...periods].reverse().map(p => (
                     <tr key={p.key}>
                       <td style={{ ...S.td, fontWeight: 500 }}>{p.label}{p.inProgress && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>in progress</span>}</td>
-                      <td style={{ ...S.td, color: MUTED }}>{p.coverage.toLocaleString()}{data.libraryTotal ? ` / ${data.libraryTotal.toLocaleString()}` : ''}{p.coveragePct != null ? ` (${(p.coveragePct * 100).toFixed(0)}%)` : ''}{isLowCov(p) && <span title="Audited too little of the library to be a reliable number." style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>low coverage</span>}</td>
+                      <td style={{ ...S.td, color: MUTED }}>{p.coverage.toLocaleString()}{data.libraryTotal ? ` / ${data.libraryTotal.toLocaleString()}` : ''}{p.coveragePct != null ? ` (${covPct(p.coverage, data.libraryTotal)})` : ''}{isLowCov(p) && <span title="Audited too little of the library to be a reliable number." style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>low coverage</span>}</td>
                       {metricCells(p)}
                     </tr>
                   ))}
@@ -461,7 +465,7 @@ function DashboardV2({ active }) {
                           {[...q.months].reverse().map(m => (
                             <tr key={m.key}>
                               <td style={{ ...S.td, fontWeight: 500 }}>{m.label}{m.inProgress && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>in progress</span>}</td>
-                              <td style={{ ...S.td, color: MUTED }}>{m.coverage.toLocaleString()}{data.libraryTotal ? ` / ${data.libraryTotal.toLocaleString()}` : ''}{m.coveragePct != null ? ` (${(m.coveragePct * 100).toFixed(0)}%)` : ''}{isLowCov(m) && <span title="Audited too little of the library to be a reliable number." style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>low coverage</span>}</td>
+                              <td style={{ ...S.td, color: MUTED }}>{m.coverage.toLocaleString()}{data.libraryTotal ? ` / ${data.libraryTotal.toLocaleString()}` : ''}{m.coveragePct != null ? ` (${covPct(m.coverage, data.libraryTotal)})` : ''}{isLowCov(m) && <span title="Audited too little of the library to be a reliable number." style={{ marginLeft: 6, fontSize: 10, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '1px 5px', borderRadius: 3, fontWeight: 600 }}>low coverage</span>}</td>
                               {metricCells(m)}
                             </tr>
                           ))}
