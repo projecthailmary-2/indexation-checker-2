@@ -231,11 +231,29 @@ function DashboardV2({ active }) {
     return () => ro.disconnect();
   }, [active, data, loading, error]);
 
+  // Board-approved metric labels, defined once so the cards, chart, and both
+  // tables read consistently. NOTE: SITE is whole-site & ALL-TIME — Google's
+  // `site:` results can't be date-filtered — while Sequoia/VB are true rolling
+  // 3-month (filtered via the WP REST API's date range). Hence SITE is NOT
+  // labelled "3-month"; the short name stays for compact spots (legend/tooltip).
+  const LABELS = {
+    coverage: { short: 'Coverage',      full: 'Sites Checked (Coverage)',                 color: null },
+    site:     { short: 'Site',          full: 'Site-Wide Indexation (All Pages, All-Time)', color: '#b07ae8' },
+    seq:      { short: 'Sequoia',       full: 'Rolling 3-Month Indexation, Sequoias',      color: '#5aa9e6' },
+    vb:       { short: 'Video Bridge',  full: 'Rolling 3-Month Indexation, Video Bridges', color: '#e0a05a' },
+  };
   const METRICS = [
-    { id: 'site', label: 'Site', color: '#b07ae8', rate: 'siteRate', tot: 'siteTotal', idx: 'siteIndexed' },
-    { id: 'seq', label: 'Sequoia', color: '#5aa9e6', rate: 'seqRate', tot: 'seqTotal', idx: 'seqIndexed' },
-    { id: 'vb', label: 'Video Bridge', color: '#e0a05a', rate: 'vbRate', tot: 'vbTotal', idx: 'vbIndexed' },
+    { id: 'site', label: LABELS.site.short, full: LABELS.site.full, color: LABELS.site.color, rate: 'siteRate', tot: 'siteTotal', idx: 'siteIndexed' },
+    { id: 'seq',  label: LABELS.seq.short,  full: LABELS.seq.full,  color: LABELS.seq.color,  rate: 'seqRate',  tot: 'seqTotal',  idx: 'seqIndexed' },
+    { id: 'vb',   label: LABELS.vb.short,   full: LABELS.vb.full,   color: LABELS.vb.color,   rate: 'vbRate',   tot: 'vbTotal',   idx: 'vbIndexed' },
   ];
+  // Two-line table header: descriptive line (muted, wraps) over the short colored name.
+  const colHead = (full, short, color) => (
+    <th key={short} style={S.th}>
+      {full && <div style={{ fontSize: 10, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.04em', lineHeight: 1.25, whiteSpace: 'normal', maxWidth: 200 }}>{full}</div>}
+      <div style={{ fontSize: 11, fontWeight: 700, color: color || TEXT, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: full ? 3 : 0 }}>{short}</div>
+    </th>
+  );
   const pct = v => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
   // Render the three metric cells (% on top, raw count underneath) for a row.
   const metricCells = (row) => METRICS.map(m => (
@@ -334,7 +352,8 @@ function DashboardV2({ active }) {
                     const r = latest[m.rate];
                     return (
                       <div key={m.id} style={{ ...S.statCard, borderTop: `3px solid ${m.color}`, padding: '8px 12px' }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: MUTED }}>{m.label}</div>
+                        <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase', color: MUTED, lineHeight: 1.25 }}>{m.full}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: m.color, marginTop: 1 }}>{m.label}</div>
                         <div style={{ fontSize: 22, fontWeight: 700, color: m.color, marginTop: 1, lineHeight: 1.1 }}>{pct(r)}</div>
                         <div style={{ fontSize: 11, color: MUTED, marginTop: 1 }}>{latest[m.idx].toLocaleString()} of {latest[m.tot].toLocaleString()} indexed</div>
                         <div style={{ height: 5, borderRadius: 4, background: 'var(--accent-light-border)', marginTop: 6, overflow: 'hidden' }}>
@@ -417,7 +436,7 @@ function DashboardV2({ active }) {
             {/* per-period table: % with the raw count underneath, all periods */}
             <div style={S.tableWrap}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead><tr>{['Period', 'Coverage', 'Site', 'Sequoia', 'Video Bridge'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <thead><tr>{[colHead(null, 'Period'), colHead(LABELS.coverage.full, LABELS.coverage.short), colHead(LABELS.site.full, LABELS.site.short, LABELS.site.color), colHead(LABELS.seq.full, LABELS.seq.short, LABELS.seq.color), colHead(LABELS.vb.full, LABELS.vb.short, LABELS.vb.color)]}</tr></thead>
                 <tbody>
                   {[...periods].reverse().map(p => (
                     <tr key={p.key}>
@@ -439,7 +458,7 @@ function DashboardV2({ active }) {
                     <div style={{ fontSize: 12, color: MUTED, marginBottom: 6 }}><strong style={{ color: TEXT }}>{q.label}</strong> — by month</div>
                     <div style={S.tableWrap}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                        <thead><tr>{['Month', 'Coverage', 'Site', 'Sequoia', 'Video Bridge'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                        <thead><tr>{[colHead(null, 'Month'), colHead(LABELS.coverage.full, LABELS.coverage.short), colHead(LABELS.site.full, LABELS.site.short, LABELS.site.color), colHead(LABELS.seq.full, LABELS.seq.short, LABELS.seq.color), colHead(LABELS.vb.full, LABELS.vb.short, LABELS.vb.color)]}</tr></thead>
                         <tbody>
                           {[...q.months].reverse().map(m => (
                             <tr key={m.key}>
