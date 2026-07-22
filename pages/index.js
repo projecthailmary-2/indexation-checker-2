@@ -250,8 +250,7 @@ function DashboardV2({ active }) {
   // Two-line table header: descriptive line (muted, wraps) over the short colored name.
   const colHead = (full, short, color) => (
     <th key={short} style={S.th}>
-      {full && <div style={{ fontSize: 10, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.04em', lineHeight: 1.25, whiteSpace: 'normal', maxWidth: 200 }}>{full}</div>}
-      <div style={{ fontSize: 11, fontWeight: 700, color: color || TEXT, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: full ? 3 : 0 }}>{short}</div>
+      <div style={{ fontSize: full ? 10 : 11, fontWeight: 700, color: color || MUTED, textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: 1.25, whiteSpace: full ? 'normal' : 'nowrap', maxWidth: full ? 200 : undefined }}>{full || short}</div>
     </th>
   );
   const pct = v => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
@@ -352,8 +351,7 @@ function DashboardV2({ active }) {
                     const r = latest[m.rate];
                     return (
                       <div key={m.id} style={{ ...S.statCard, borderTop: `3px solid ${m.color}`, padding: '8px 12px' }}>
-                        <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase', color: MUTED, lineHeight: 1.25 }}>{m.full}</div>
-                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: m.color, marginTop: 1 }}>{m.label}</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', color: m.color, lineHeight: 1.25 }}>{m.full}</div>
                         <div style={{ fontSize: 22, fontWeight: 700, color: m.color, marginTop: 1, lineHeight: 1.1 }}>{pct(r)}</div>
                         <div style={{ fontSize: 11, color: MUTED, marginTop: 1 }}>{latest[m.idx].toLocaleString()} of {latest[m.tot].toLocaleString()} indexed</div>
                         <div style={{ height: 5, borderRadius: 4, background: 'var(--accent-light-border)', marginTop: 6, overflow: 'hidden' }}>
