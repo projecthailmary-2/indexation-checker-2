@@ -20,6 +20,7 @@ import { auditDomain } from '../lib/audit.js';
 import {
   sheetsConfigured, getTrackingSites,
   writeTrackingResults, appendIndexationHistory, appendSalvagePosts, appendSequoiaLog, appendVideoBridgeLog,
+  pruneAuditLogs,
 } from '../lib/sheets.js';
 import { isEnabled, setStatus, getBatchSize } from '../lib/runnerState.js';
 import { recordUsage } from '../lib/usage.js';
@@ -113,7 +114,7 @@ async function main() {
   const BATCH_SIZE = await resolveBatchSize();
   const FRESHNESS_DAYS = parseInt(process.env.FRESHNESS_DAYS, 10) || 0;
   log(`Starting batch: up to ${BATCH_SIZE} sites, saving every ${CHUNK_SIZE}${FRESHNESS_DAYS ? `, skipping sites checked in the last ${FRESHNESS_DAYS}d` : ''}${DRY_RUN ? ' (DRY RUN)' : ''}.`);
-  const { domains, total, eligible } = await getTrackingSites({ limit: BATCH_SIZE, freshDays: FRESHNESS_DAYS });
+  const { domains, total, eligible, recheckCount } = await getTrackingSites({ limit: BATCH_SIZE, freshDays: FRESHNESS_DAYS });
 
   // Nothing stale enough to audit → the library is current; idle without spending.
   if (domains.length === 0) {
@@ -122,7 +123,7 @@ async function main() {
     return;
   }
 
-  log(`Pulled ${domains.length} of ${eligible} stale sites (of ${total} total).`);
+  log(`Pulled ${domains.length} of ${eligible} stale sites (of ${total} total)${recheckCount ? `, incl. ${recheckCount} forced by the Recheck? box` : ''}.`);
   await setStatus({ state: 'running', startedAt: new Date().toISOString(), requested: domains.length, audited: 0, failed: 0, saved: 0, creditStop: null });
 
   const summary = { requested: domains.length, audited: 0, failed: 0, saved: 0, creditStop: null, failReasons: {}, searchCredits: 0, checkCredits: 0 };
@@ -187,6 +188,17 @@ async function main() {
     }
   }
   await flush(); // saves + logs usage for the final partial chunk
+
+  // Keep the Sequoia/VB audit logs from growing forever — trim to the last 14 days
+  // (they're only for manual spot-checking; the History tab holds the real data).
+  if (!DRY_RUN) {
+    try {
+      for (const { tab, pruned, error } of await pruneAuditLogs(14)) {
+        if (error) log(`  log prune failed for ${tab}: ${error}`);
+        else if (pruned) log(`Pruned ${pruned} old rows from "${tab}".`);
+      }
+    } catch (e) { log(`  log prune failed: ${e.message}`); }
+  }
 
   log(`Total usage this run: ${summary.searchCredits} searches + ${summary.checkCredits} index checks = ${summary.searchCredits + summary.checkCredits} credits.`);
   await setStatus({ state: 'idle', finishedAt: new Date().toISOString(), lastRun: summary });
