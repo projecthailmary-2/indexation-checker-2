@@ -20,7 +20,7 @@ import { auditDomain } from '../lib/audit.js';
 import {
   sheetsConfigured, getTrackingSites,
   writeTrackingResults, appendIndexationHistory, appendSalvagePosts, appendSequoiaLog, appendVideoBridgeLog,
-  pruneAuditLogs,
+  pruneAuditLogs, refreshLowIndexationTab,
 } from '../lib/sheets.js';
 import { isEnabled, setStatus, getBatchSize } from '../lib/runnerState.js';
 import { recordUsage } from '../lib/usage.js';
@@ -113,13 +113,17 @@ async function main() {
 
   const BATCH_SIZE = await resolveBatchSize();
   const FRESHNESS_DAYS = parseInt(process.env.FRESHNESS_DAYS, 10) || 0;
-  log(`Starting batch: up to ${BATCH_SIZE} sites, saving every ${CHUNK_SIZE}${FRESHNESS_DAYS ? `, skipping sites checked in the last ${FRESHNESS_DAYS}d` : ''}${DRY_RUN ? ' (DRY RUN)' : ''}.`);
-  const { domains, total, eligible, recheckCount } = await getTrackingSites({ limit: BATCH_SIZE, freshDays: FRESHNESS_DAYS });
+  // Default eligibility = the WEEK GATE (audit any site not yet done THIS week).
+  // A positive FRESHNESS_DAYS (manual override) switches to a rolling N-day window.
+  const WEEK_GATE = process.env.WEEK_GATE === 'true' && FRESHNESS_DAYS <= 0;
+  const gateDesc = FRESHNESS_DAYS ? `skipping sites checked in the last ${FRESHNESS_DAYS}d` : WEEK_GATE ? 'skipping sites already audited this week' : '';
+  log(`Starting batch: up to ${BATCH_SIZE} sites, saving every ${CHUNK_SIZE}${gateDesc ? `, ${gateDesc}` : ''}${DRY_RUN ? ' (DRY RUN)' : ''}.`);
+  const { domains, total, eligible, recheckCount } = await getTrackingSites({ limit: BATCH_SIZE, freshDays: FRESHNESS_DAYS, weekGate: WEEK_GATE });
 
-  // Nothing stale enough to audit → the library is current; idle without spending.
+  // Nothing eligible → the library is current for this cycle; idle without spending.
   if (domains.length === 0) {
-    log(`Nothing to audit — all ${total} sites already checked within the last ${FRESHNESS_DAYS} days. Idling.`);
-    await setStatus({ state: 'idle', finishedAt: new Date().toISOString(), note: `all fresh (≤${FRESHNESS_DAYS}d) — nothing to do` });
+    log(`Nothing to audit — all ${total} sites already ${WEEK_GATE ? 'audited this week' : `checked within the last ${FRESHNESS_DAYS} days`}. Idling.`);
+    await setStatus({ state: 'idle', finishedAt: new Date().toISOString(), note: WEEK_GATE ? 'all audited this week — nothing to do' : `all fresh (≤${FRESHNESS_DAYS}d) — nothing to do` });
     return;
   }
 
@@ -219,6 +223,11 @@ async function main() {
       catch (e) { log(`Chain: could not trigger next run — ${e.message}`); }
     } else {
       log(`Chain complete — ${remaining <= 0 ? 'library refreshed' : summary.creditStop ? 'out of credits' : summary.stoppedByUser ? 'stopped by user' : 'paused'}.`);
+      // Pass fully finished → rebuild the Low Indexation worklist tab from fresh data.
+      if (remaining <= 0) {
+        try { const r = await refreshLowIndexationTab({ threshold: 0.65 }); log(`Low Indexation tab refreshed: ${r.sites} sites, ${r.flagged} flagged.`); }
+        catch (e) { log(`  Low Indexation refresh failed: ${e.message}`); }
+      }
     }
   }
 }

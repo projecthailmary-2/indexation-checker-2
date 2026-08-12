@@ -61,12 +61,14 @@ jobs:
           BATCH_SIZE: ${{ github.event.inputs.batch_size }}
           RUNS_PER_DAY: '3'
           CHUNK_SIZE: '10'
-          # Skip sites already checked within this many days. Weekly cadence:
-          # re-audit sites older than 5 days — on Monday the whole prior-week
-          # library is stale → full pass; Tue–Thu it's all fresh → idle. The
-          # "Run workflow" freshness_days input (or a chained run's client_payload)
-          # can override it for a one-off forced re-audit; scheduled runs get 5.
-          FRESHNESS_DAYS: ${{ github.event.inputs.freshness_days || github.event.client_payload.freshness_days || '5' }}
+          # Eligibility = the WEEK GATE (WEEK_GATE below): audit any site not yet
+          # done THIS week (last check before the most recent Sunday). Robust to
+          # slow/late passes — a delayed run can't leave a site looking "fresh" and
+          # skip it. A "Run workflow" freshness_days input (or a chained run's
+          # client_payload) OVERRIDES it with a rolling N-day window for a one-off
+          # forced re-audit; otherwise this stays blank and the week gate applies.
+          FRESHNESS_DAYS: ${{ github.event.inputs.freshness_days || github.event.client_payload.freshness_days || '' }}
+          WEEK_GATE: 'true'
           # Self-chaining: each run audits CHAIN_BATCH sites then triggers the next
           # (via GH_PAT) until the whole library is refreshed — so the 2nd/3rd/…
           # runs don't depend on the flaky cron. Cron just kicks off the first one.
