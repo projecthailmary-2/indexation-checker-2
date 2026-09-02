@@ -75,6 +75,8 @@ jobs:
           CHAIN: 'true'
           CHAIN_BATCH: '500'
           GH_PAT: ${{ secrets.GH_PAT }}
+          # The runner posts the weekly summary to Slack itself when a pass completes.
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           set -o pipefail
           node --no-warnings scripts/run-batch.mjs 2>&1 | tee run.log
@@ -85,8 +87,10 @@ jobs:
       # clean stop because SerpApi ran out of credits / the key is invalid.
       # Plain successful runs and skipped (automation-off) runs stay silent.
       - name: Notify Slack
-        # PAUSED 2026-07-15 (Nate) — Slack alerts silenced for now. Restore: if: always()
-        if: false
+        # Failure / credit-stop alerts (re-enabled 2026-08-14). The weekly SUMMARY
+        # is posted by the runner itself on pass completion — this step is only for
+        # genuine failures and credit stops.
+        if: always()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           JOB_STATUS: ${{ job.status }}

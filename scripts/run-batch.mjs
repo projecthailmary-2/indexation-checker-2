@@ -20,9 +20,10 @@ import { auditDomain } from '../lib/audit.js';
 import {
   sheetsConfigured, getTrackingSites,
   writeTrackingResults, appendIndexationHistory, appendSalvagePosts, appendSequoiaLog, appendVideoBridgeLog,
-  pruneAuditLogs, refreshLowIndexationTab,
+  pruneAuditLogs, refreshLowIndexationTab, readTab, normDomain,
 } from '../lib/sheets.js';
-import { isEnabled, setStatus, getBatchSize } from '../lib/runnerState.js';
+import { isEnabled, setStatus, getBatchSize, getLastSummary, setLastSummary } from '../lib/runnerState.js';
+import { aggregateHistory } from '../lib/dashboard.js';
 import { recordUsage } from '../lib/usage.js';
 
 // Load .env.local for local runs (in CI the env is already populated).
@@ -80,6 +81,63 @@ const norm = s => String(s || '').trim().toLowerCase()
   .replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
 
 function log(msg) { console.log(`[${new Date().toISOString()}] ${msg}`); }
+
+// ===== Weekly summary to Slack (fired when a pass completes, not on a schedule) =====
+// Library-wide Site/Sequoia/VB indexation + coverage for the just-finished week.
+// Uses the SAME aggregation as the dashboard, so the numbers always match.
+async function computeWeeklyStats() {
+  const hist = await readTab(process.env.GOOGLE_HISTORY_TAB || 'Indexation History');
+  const { auditableTotal, auditableDomains } = await getTrackingSites({ limit: 0 });
+  const agg = aggregateHistory(hist, { period: 'week', libraryTotal: auditableTotal });
+  const wk = agg.periods[agg.periods.length - 1];
+  if (!wk) return null;
+  // Errored this week = auditable domains attempted this week whose latest row isn't OK.
+  const n = new Date();
+  const sow = Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() - n.getUTCDay());
+  const pm = s => { const p = String(s).split('/').map(Number); return Date.UTC(p[2], p[0] - 1, p[1]); };
+  const allow = new Set(auditableDomains); const okSet = new Set(), errSet = new Set();
+  for (const r of hist) {
+    const dom = normDomain(r['Domain']); if (!allow.has(dom)) continue;
+    const d = pm(r['Date']); if (Number.isNaN(d) || d < sow) continue;
+    if (String(r['Status'] || '').toUpperCase() === 'OK') okSet.add(dom); else errSet.add(dom);
+  }
+  const errored = [...errSet].filter(d => !okSet.has(d)).length;
+  return {
+    weekKey: wk.key, weekLabel: wk.label, total: auditableTotal,
+    coverage: wk.coverage, coveragePct: wk.coveragePct ?? 0, errored,
+    siteRate: wk.siteRate, seqRate: wk.seqRate, vbRate: wk.vbRate,
+    seqI: wk.seqIndexed, seqT: wk.seqTotal, vbI: wk.vbIndexed, vbT: wk.vbTotal,
+  };
+}
+
+function summaryText(s, updated) {
+  const pct = r => (r == null ? 'n/a' : `${(r * 100).toFixed(1)}%`);
+  const cnt = (i, t) => `${(i || 0).toLocaleString()} / ${(t || 0).toLocaleString()}`;
+  const header = updated ? '🔄 *Weekly Indexation Audit — Updated (after recheck)*' : '✅ *Weekly Indexation Audit — Complete*';
+  const errNote = s.errored > 0 ? ` — ${s.errored.toLocaleString()} errored${updated ? '' : ', recheck pending'}` : '';
+  return `${header}\n${s.weekLabel}\n\n` +
+    `• Site Coverage: *${pct(s.coveragePct)}*  (${cnt(s.coverage, s.total)})${errNote}\n` +
+    `• Overall Site Indexation: *${pct(s.siteRate)}*\n` +
+    `• Sequoia Indexation: *${pct(s.seqRate)}*  (${cnt(s.seqI, s.seqT)})\n` +
+    `• Video Bridge Indexation: *${pct(s.vbRate)}*  (${cnt(s.vbI, s.vbT)})`;
+}
+
+// Post once per week when the pass completes; re-post only if a later recheck
+// lifts coverage by >= 1 percentage point (option B). Never spams small rechecks.
+async function maybePostWeeklySummary() {
+  const webhook = process.env.SLACK_WEBHOOK_URL;
+  if (!webhook) { log('No SLACK_WEBHOOK_URL — skipping weekly summary.'); return; }
+  const s = await computeWeeklyStats();
+  if (!s) return;
+  const prev = await getLastSummary();
+  const isNewWeek = !prev || prev.week !== s.weekKey;
+  const improved = prev && prev.week === s.weekKey && (s.coveragePct - (prev.coverage || 0)) >= 0.01;
+  if (!isNewWeek && !improved) { log(`Weekly summary: already posted this week (cov ${(s.coveragePct * 100).toFixed(1)}%, <1pt gain) — skipping.`); return; }
+  const res = await fetch(webhook, { method: 'POST', headers: { 'Content-type': 'application/json' }, body: JSON.stringify({ text: summaryText(s, !isNewWeek) }) });
+  if (!res.ok) { log(`Weekly summary POST failed: ${res.status}`); return; }
+  await setLastSummary({ week: s.weekKey, coverage: s.coveragePct });
+  log(`Posted weekly summary (${isNewWeek ? 'new' : 'updated after recheck'}) — coverage ${(s.coveragePct * 100).toFixed(1)}%.`);
+}
 
 // Write one chunk's worth of results to the sheet (Tracker + History + Salvage).
 async function saveChunk(rows, posts) {
@@ -223,10 +281,13 @@ async function main() {
       catch (e) { log(`Chain: could not trigger next run — ${e.message}`); }
     } else {
       log(`Chain complete — ${remaining <= 0 ? 'library refreshed' : summary.creditStop ? 'out of credits' : summary.stoppedByUser ? 'stopped by user' : 'paused'}.`);
-      // Pass fully finished → rebuild the Low Indexation worklist tab from fresh data.
+      // Pass fully finished → rebuild the Low Indexation worklist + post the weekly
+      // Slack summary (fired on completion, so GitHub cron delays never matter).
       if (remaining <= 0) {
         try { const r = await refreshLowIndexationTab({ threshold: 0.65 }); log(`Low Indexation tab refreshed: ${r.sites} sites, ${r.flagged} flagged.`); }
         catch (e) { log(`  Low Indexation refresh failed: ${e.message}`); }
+        try { await maybePostWeeklySummary(); }
+        catch (e) { log(`  weekly summary failed: ${e.message}`); }
       }
     }
   }
