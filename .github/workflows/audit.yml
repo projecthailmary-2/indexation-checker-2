@@ -22,6 +22,11 @@ on:
       freshness_days:
         description: 'Override freshness for THIS pass (blank = weekly default 5; use 2 to force a full re-audit). The chain carries it through.'
         required: false
+      test_summary:
+        description: 'TEST: post a sample weekly summary to Slack and exit (no auditing, no credits)'
+        required: false
+        type: boolean
+        default: false
   repository_dispatch:
     types: [run-audit]
 
@@ -77,6 +82,8 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
           # The runner posts the weekly summary to Slack itself when a pass completes.
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          # When true, the runner just posts a sample summary to Slack and exits.
+          TEST_SUMMARY: ${{ github.event.inputs.test_summary }}
         run: |
           set -o pipefail
           node --no-warnings scripts/run-batch.mjs 2>&1 | tee run.log

@@ -124,19 +124,25 @@ function summaryText(s, updated) {
 
 // Post once per week when the pass completes; re-post only if a later recheck
 // lifts coverage by >= 1 percentage point (option B). Never spams small rechecks.
-async function maybePostWeeklySummary() {
+async function maybePostWeeklySummary({ force = false } = {}) {
   const webhook = process.env.SLACK_WEBHOOK_URL;
   if (!webhook) { log('No SLACK_WEBHOOK_URL — skipping weekly summary.'); return; }
   const s = await computeWeeklyStats();
   if (!s) return;
-  const prev = await getLastSummary();
-  const isNewWeek = !prev || prev.week !== s.weekKey;
-  const improved = prev && prev.week === s.weekKey && (s.coveragePct - (prev.coverage || 0)) >= 0.01;
-  if (!isNewWeek && !improved) { log(`Weekly summary: already posted this week (cov ${(s.coveragePct * 100).toFixed(1)}%, <1pt gain) — skipping.`); return; }
-  const res = await fetch(webhook, { method: 'POST', headers: { 'Content-type': 'application/json' }, body: JSON.stringify({ text: summaryText(s, !isNewWeek) }) });
+  let updated = false;
+  if (!force) {
+    const prev = await getLastSummary();
+    const isNewWeek = !prev || prev.week !== s.weekKey;
+    updated = !isNewWeek;
+    const improved = prev && !isNewWeek && (s.coveragePct - (prev.coverage || 0)) >= 0.01;
+    if (!isNewWeek && !improved) { log(`Weekly summary: already posted this week (cov ${(s.coveragePct * 100).toFixed(1)}%, <1pt gain) — skipping.`); return; }
+  }
+  // A forced test post is clearly marked so the channel doesn't mistake it for real.
+  const text = force ? `🧪 *[TEST]* — this is a sample of the weekly summary; nothing changed.\n\n${summaryText(s, false)}` : summaryText(s, updated);
+  const res = await fetch(webhook, { method: 'POST', headers: { 'Content-type': 'application/json' }, body: JSON.stringify({ text }) });
   if (!res.ok) { log(`Weekly summary POST failed: ${res.status}`); return; }
-  await setLastSummary({ week: s.weekKey, coverage: s.coveragePct });
-  log(`Posted weekly summary (${isNewWeek ? 'new' : 'updated after recheck'}) — coverage ${(s.coveragePct * 100).toFixed(1)}%.`);
+  if (!force) await setLastSummary({ week: s.weekKey, coverage: s.coveragePct }); // test never touches the real state
+  log(force ? 'Posted TEST weekly summary to Slack.' : `Posted weekly summary (${updated ? 'updated after recheck' : 'new'}) — coverage ${(s.coveragePct * 100).toFixed(1)}%.`);
 }
 
 // Write one chunk's worth of results to the sheet (Tracker + History + Salvage).
@@ -160,6 +166,15 @@ async function main() {
   if (!sheetsConfigured()) {
     log('ERROR: Google Sheet not configured (need GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, GOOGLE_SHEET_ID).');
     process.exit(1);
+  }
+
+  // Test mode: post a sample weekly summary to Slack and exit — no auditing, no
+  // credits, doesn't touch the real once-per-week state. Triggered by the
+  // "test_summary" workflow_dispatch input.
+  if (process.env.TEST_SUMMARY === 'true') {
+    log('TEST_SUMMARY=true — posting a sample weekly summary to Slack, then exiting.');
+    await maybePostWeeklySummary({ force: true });
+    return;
   }
 
   // Respect the app's On/Off switch (unless this is a dry test run).
