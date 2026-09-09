@@ -1,6 +1,6 @@
 // pages/api/steps/step4-7.js
-// Step 4: Fetch post links (last 6 months, exclude last 24 days) — includes Pub Date
-// Step 5: Count external links — drills into <main> > <article> > <p>, ignores date links
+// Step 4: Fetch post links + rendered content via the WP REST API (3mo window, exclude last 24 days)
+// Step 5: Count external links in each post's content.rendered, ignoring date links
 // Step 6: Categorize task types (Video Bridge / Sequoia / Others)
 // Step 7: Aggregate Sequoia & VB counts per domain
 // Thin wrapper around the shared engine in lib/audit.js.
@@ -39,8 +39,8 @@ export default async function handler(req, res) {
     if (reason) row.failReason = reason;
     trackerResults.push(row);
 
-    for (const { url, pubDate } of links) {
-      const { externalCount, taskType } = await analyzePost(url, domain);
+    for (const { url, pubDate, html } of links) {
+      const { externalCount, taskType } = analyzePost(html, domain);
       postLinks.push({ domain, link: url, pubDate, externalCount, taskType });
     }
   }
