@@ -27,6 +27,11 @@ on:
         required: false
         type: boolean
         default: false
+      force_summary:
+        description: 'Post the CURRENT real weekly stats to Slack as an update and exit (e.g. after an out-of-band correction) — no auditing, no credits'
+        required: false
+        type: boolean
+        default: false
   repository_dispatch:
     types: [run-audit]
 
@@ -84,6 +89,7 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           # When true, the runner just posts a sample summary to Slack and exits.
           TEST_SUMMARY: ${{ github.event.inputs.test_summary }}
+          FORCE_SUMMARY: ${{ github.event.inputs.force_summary }}
         run: |
           set -o pipefail
           node --no-warnings scripts/run-batch.mjs 2>&1 | tee run.log

@@ -124,25 +124,32 @@ function summaryText(s, updated) {
 
 // Post once per week when the pass completes; re-post only if a later recheck
 // lifts coverage by >= 1 percentage point (option B). Never spams small rechecks.
-async function maybePostWeeklySummary({ force = false } = {}) {
+// `mode`: 'auto' (default, the pass-completion gate above) | 'test' (a clearly-
+// marked sample, doesn't touch state — for verifying the channel/format) |
+// 'real' (posts the CURRENT real stats as a genuine update regardless of the
+// coverage gate, and DOES update state — for an out-of-band correction, like
+// fixing a bad week's numbers after a data-quality recheck, where coverage
+// itself didn't change but the indexed counts did).
+async function maybePostWeeklySummary({ mode = 'auto' } = {}) {
   const webhook = process.env.SLACK_WEBHOOK_URL;
   if (!webhook) { log('No SLACK_WEBHOOK_URL — skipping weekly summary.'); return; }
   const s = await computeWeeklyStats();
   if (!s) return;
   let updated = false;
-  if (!force) {
+  if (mode === 'auto') {
     const prev = await getLastSummary();
     const isNewWeek = !prev || prev.week !== s.weekKey;
     updated = !isNewWeek;
     const improved = prev && !isNewWeek && (s.coveragePct - (prev.coverage || 0)) >= 0.01;
     if (!isNewWeek && !improved) { log(`Weekly summary: already posted this week (cov ${(s.coveragePct * 100).toFixed(1)}%, <1pt gain) — skipping.`); return; }
+  } else if (mode === 'real') {
+    updated = true; // always framed as an update, never a fresh "Complete"
   }
-  // A forced test post is clearly marked so the channel doesn't mistake it for real.
-  const text = force ? `🧪 *[TEST]* — this is a sample of the weekly summary; nothing changed.\n\n${summaryText(s, false)}` : summaryText(s, updated);
+  const text = mode === 'test' ? `🧪 *[TEST]* — this is a sample of the weekly summary; nothing changed.\n\n${summaryText(s, false)}` : summaryText(s, updated);
   const res = await fetch(webhook, { method: 'POST', headers: { 'Content-type': 'application/json' }, body: JSON.stringify({ text }) });
   if (!res.ok) { log(`Weekly summary POST failed: ${res.status}`); return; }
-  if (!force) await setLastSummary({ week: s.weekKey, coverage: s.coveragePct }); // test never touches the real state
-  log(force ? 'Posted TEST weekly summary to Slack.' : `Posted weekly summary (${updated ? 'updated after recheck' : 'new'}) — coverage ${(s.coveragePct * 100).toFixed(1)}%.`);
+  if (mode !== 'test') await setLastSummary({ week: s.weekKey, coverage: s.coveragePct }); // test never touches the real state
+  log(mode === 'test' ? 'Posted TEST weekly summary to Slack.' : `Posted weekly summary (${mode} — ${updated ? 'updated' : 'new'}) — coverage ${(s.coveragePct * 100).toFixed(1)}%.`);
 }
 
 // Write one chunk's worth of results to the sheet (Tracker + History + Salvage).
@@ -173,7 +180,17 @@ async function main() {
   // "test_summary" workflow_dispatch input.
   if (process.env.TEST_SUMMARY === 'true') {
     log('TEST_SUMMARY=true — posting a sample weekly summary to Slack, then exiting.');
-    await maybePostWeeklySummary({ force: true });
+    await maybePostWeeklySummary({ mode: 'test' });
+    return;
+  }
+
+  // Force mode: post the CURRENT real stats as a genuine update and exit — no
+  // auditing, no credits. For posting a corrected number after an out-of-band
+  // fix (e.g. a data-quality recheck) that the normal coverage-based gate
+  // wouldn't catch. Triggered by the "force_summary" workflow_dispatch input.
+  if (process.env.FORCE_SUMMARY === 'true') {
+    log('FORCE_SUMMARY=true — posting the current real weekly stats to Slack, then exiting.');
+    await maybePostWeeklySummary({ mode: 'real' });
     return;
   }
 
